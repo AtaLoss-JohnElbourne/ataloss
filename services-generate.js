@@ -5,6 +5,10 @@ const FILE_PATH = window.servicesDataFileName || 'services-data.js';
 const COMMIT_MESSAGE = 'Services Data Update';
 const BASE_URL = window.location.origin;
 
+console.log('HERE');
+console.log(window.servicesDataFileName);
+console.log(FILE_PATH);
+console.log('THERE');
 
 window.addEventListener("load", function () {
 
@@ -114,6 +118,11 @@ window.addEventListener("load", function () {
 				title: item.title,
 				excerpt: item.excerpt,
 				featured: item.starred,
+				catWho: catWho,
+				catCDeath: catCDeath,
+				catAgePerson: catAgePerson,
+				catLocation: catLocation,
+				catType: catType,
 				...(() => {
 					const { salesforceId, cleanedBody } = extractSalesforceIdAndCleanBody(item.body);
 					return {
@@ -121,11 +130,6 @@ window.addEventListener("load", function () {
 						body: cleanedBody
 					};
 				})()
-				catWho: catWho,
-				catCDeath: catCDeath,
-				catAgePerson: catAgePerson,
-				catLocation: catLocation,
-				catType: catType,
 			}];
 			whoCat = [...new Set([...whoCat, ...catWho])];
 			cDeathCat = [...new Set([...cDeathCat, ...catCDeath])];
@@ -271,7 +275,10 @@ window.addEventListener("load", function () {
 				logToPopup('Generating Services Data Cache File');
 
 				const githubToken = document.getElementById('patPassword').value;
+				console.log('got token');
+				console.log(githubToken);
 				const sha = await getGitHubSha(githubToken);
+				console.log('got shq');
 				const servicesData = await getServicesData();
 				if (servicesData.length > 0) {
 					const content = generateJavascript(servicesData);
