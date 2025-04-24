@@ -1,7 +1,7 @@
 const USERNAME = 'johnelbourne';
 const REPO = 'ataloss';
 const BRANCH = 'main';
-const FILE_PATH = 'services-data.js';
+const FILE_PATH = window.servicesDataFileName || 'services-data.js';
 const COMMIT_MESSAGE = 'Services Data Update';
 const BASE_URL = window.location.origin;
 
@@ -78,6 +78,26 @@ window.addEventListener("load", function () {
 		return accumulatedData;
 	}
 
+	function extractSalesforceIdAndCleanBody(body) {
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(body, "text/html");
+		let salesforceId = null;
+
+		// Find all <p> tags
+		doc.querySelectorAll("p").forEach(p => {
+			const match = p.textContent.trim().match(/^\[(\w{15})\]$/);
+			if (match) {
+				salesforceId = match[1]; // Extract ID
+				p.remove(); // Remove <p> that contains ONLY the ID
+			}
+		});
+
+		return {
+			salesforceId,
+			cleanedBody: doc.body.innerHTML.trim()
+		};
+	}
+
 	function generateJavascript(servicesData) {
 		let wholeCategories = {};
 		let catWho = [], whoCat = [], catCDeath = [], cDeathCat = [], catAgePerson = [], agePersonCat = [], catLocation = [], locationCat = [], catType = [], typeCat = [];
@@ -90,10 +110,17 @@ window.addEventListener("load", function () {
 			catType = extractedData("Type:", item.categories);
 			requiredData = [{
 				id: item.id,
+				fullUrl: item.fullUrl,
 				title: item.title,
-				body: item.body,
 				excerpt: item.excerpt,
 				featured: item.starred,
+				...(() => {
+					const { salesforceId, cleanedBody } = extractSalesforceIdAndCleanBody(item.body);
+					return {
+						salesforceId,
+						body: cleanedBody
+					};
+				})()
 				catWho: catWho,
 				catCDeath: catCDeath,
 				catAgePerson: catAgePerson,
