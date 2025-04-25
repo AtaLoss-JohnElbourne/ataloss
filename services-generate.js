@@ -47,6 +47,7 @@ window.addEventListener("load", function () {
 		const jsonPath = BASE_URL + "/more-info/bereavement-services?offset=";
 		accumulatedData = [];
 		let page = 0;
+		let baseUrl = '';
 		try {
 			offset = 9999999999999;
 			const seenIds = new Set();
@@ -60,10 +61,16 @@ window.addEventListener("load", function () {
 					throw new Error(`HTTP error! Status: ${response.status}`);
 				}
 				const data = await response.json();
+				// save baseUrl to create links for each listing
+				if (page == 1) {
+					baseUrl = data.website.baseUrl;
+				}
 				if (data.items && data.items.length > 0) {
 					for (const item of data.items) {
 						if (!seenIds.has(item.id)) {
 							seenIds.add(item.id);
+							// add base URL to create actual link
+							item.fullUrl = baseUrl + item.fullUrl;
 							accumulatedData.push(item);
 						}
 					}
@@ -118,6 +125,8 @@ window.addEventListener("load", function () {
 				title: item.title,
 				excerpt: item.excerpt,
 				featured: item.starred,
+				publishOn: item.publishOn,
+				updatedOn: item.updatedOn,
 				catWho: catWho,
 				catCDeath: catCDeath,
 				catAgePerson: catAgePerson,
