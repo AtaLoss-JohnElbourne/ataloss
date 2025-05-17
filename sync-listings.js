@@ -1,13 +1,13 @@
-const CLIENT_ID = '3MVG9Ve.2wqUVx_bJYpcLqDC5bMiXOH6ytcHMDDKZe4BfDF8.SS9hNrfOOvvruf0QhCQWpM2o3AqWU8S0Kf1N';
-const REDIRECT_URI = 'https://www.ataloss.org/service-update-2'; // or your actual domain
 const LOGIN_URL = 'https://login.salesforce.com';
 const NUMBER_OF_CHANGES = 10;
 
-let accessToken = null;
-let instanceUrl = null;
-let pendingUpdates = [];
-let sfRecords = null;
-let pendingArchive = [];
+const state = {
+  accessToken: null,
+  instanceUrl: null,
+  pendingUpdates: [],
+  sfRecords: null,
+  pendingArchive: []
+};
 
 // Delete 'featured' array to free memory
 delete window.sectionData['featured'];
@@ -129,7 +129,7 @@ function getTokenFromHash() {
 
 // Perform login redirect
 function loginWithSalesforce() {
-	const authUrl = `${LOGIN_URL}/services/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+	const authUrl = `${LOGIN_URL}/services/oauth2/authorize?response_type=token&client_id=${window.oauthConfig.clientId}&redirect_uri=${encodeURIComponent(window.oauthConfig.redirectUri)}`;
 	window.location.href = authUrl;
 }
 
@@ -150,22 +150,22 @@ const servicesSoql = `
 
 async function fetchAllSFRecords() {
 
-	sfRecords = [];
+	state.sfRecords = [];
 	
-	let url = `${instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(servicesSoql.trim())}`;
+	let url = `${state.instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(servicesSoql.trim())}`;
 
 	while (url) {
 		const res = await fetch(url, {
 			headers: {
-				Authorization: `Bearer ${accessToken}`
+				Authorization: `Bearer ${state.accessToken}`
 			}
 		});
 
 		const data = await res.json();
-		sfRecords.push(...data.records);
-		url = data.nextRecordsUrl ? `${instanceUrl}${data.nextRecordsUrl}` : null;
+		state.sfRecords.push(...data.records);
+		url = data.nextRecordsUrl ? `${state.instanceUrl}${data.nextRecordsUrl}` : null;
 	}
-	console.log(`${sfRecords.length} records loaded from CRM`);
+	console.log(`${state.sfRecords.length} records loaded from CRM`);
 }
 
 async function findExtraListings(sfRecords, combinedFiltered) {
@@ -189,9 +189,9 @@ async function findExtraListings(sfRecords, combinedFiltered) {
     WHERE Service_Listing_System_ID__c IN (${systemIdsToCheck})
   `;
 
-  const response = await fetch(`${instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(query)}`, {
+  const response = await fetch(`${state.instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(query)}`, {
     headers: {
-      'Authorization': `Bearer ${accessToken}`
+      'Authorization': `Bearer ${state.accessToken}`
     }
   });
 
@@ -271,16 +271,16 @@ function displayUnknownSysIds(missing, archived) {
 
 function findRecordsToArchive(sfRecords, combinedFiltered) {
   const currentSysIds = new Set(combinedFiltered.map(item => item.salesforceId));
-  pendingArchive = sfRecords.filter(record =>
+  state.pendingArchive = sfRecords.filter(record =>
     record.Service_Listing_System_ID__c &&
     !currentSysIds.has(record.Service_Listing_System_ID__c)
   );
 
   const container = document.getElementById('archive-records');
-  if (pendingArchive.length === 0) {
+  if (state.pendingArchive.length === 0) {
     container.innerHTML = '<p>No records need to be archived.</p>';
   } else {
-		pendingArchive.sort((a, b) => a.Service_Listing_Name__c.localeCompare(b.Service_Listing_Name__c, undefined, { sensitivity: 'base' }));
+		state.pendingArchive.sort((a, b) => a.Service_Listing_Name__c.localeCompare(b.Service_Listing_Name__c, undefined, { sensitivity: 'base' }));
 
     const html = `
 			<p>The third step is to make sure there are no unachived records in the CRM, that aren't matched by 
@@ -290,7 +290,7 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 				 flag in the CRM record of each of these Service Listings. After updating the blog listings, don't 
 				 forget to regenerate the cache and Ctrl Refresh this page, as this page is based on that cache.</p>
       <ul>
-        ${pendingArchive.map(r =>
+        ${state.pendingArchive.map(r =>
           `<li>${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</li>`
         ).join('')}
       </ul>`;
@@ -299,19 +299,19 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
   container.style.display = 'block';
 }
 
-async function archiveRecords() {
+async function archiveRecords(state) {
 	const archiveBtn = document.getElementById('archiveBtn');
 	archiveBtn.disabled = true;
 
   const container = document.getElementById('archive-records');
 	container.innerHTML = 'Archiving ...';
 	
-  for (const record of pendingArchive.slice(0,1)) {
-    const response = await fetch(`${instanceUrl}/services/data/v63.0/sobjects/Service_Listing__c/${record.Id}`, {
+  for (const record of state.pendingArchive.slice(0,1)) {
+    const response = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Service_Listing__c/${record.Id}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${state.accessToken}`
       },
       body: JSON.stringify({
         Archive_Record__c: true
@@ -329,8 +329,8 @@ async function archiveRecords() {
 	// refresh SF records
 	await fetchAllSFRecords();
 	
-	findRecordsToArchive(sfRecords, window.combinedFiltered);
-	if (pendingArchive.length > 0) {
+	findRecordsToArchive(state.sfRecords, window.combinedFiltered);
+	if (state.pendingArchive.length > 0) {
 		archiveBtn.disabled = false;
 	}
 }
@@ -343,11 +343,11 @@ async function archiveRecords() {
 
 // Function to create a new tag record
 async function createTagRecord(serviceListingId, tagValue) {
-  const response = await fetch(`${instanceUrl}/services/data/v63.0/sobjects/Tags__c`, {
+  const response = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Tags__c`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
+      'Authorization': `Bearer ${state.accessToken}`
     },
     body: JSON.stringify({
       Service_Listing__c: serviceListingId,
@@ -366,11 +366,11 @@ async function createTagRecord(serviceListingId, tagValue) {
 async function deleteTagRecord(serviceListingId, tagValue) {
   // Step 1: Query for the tag record(s)
   const query = `SELECT Id FROM Tags__c WHERE Service_Listing__c = '${serviceListingId}' AND Location_Tag1__c = '${tagValue}'`;
-  const queryUrl = `${instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(query)}`;
+  const queryUrl = `${state.instanceUrl}/services/data/v63.0/query?q=${encodeURIComponent(query)}`;
 
   const queryResponse = await fetch(queryUrl, {
     headers: {
-      'Authorization': `Bearer ${accessToken}`
+      'Authorization': `Bearer ${state.accessToken}`
     }
   });
 
@@ -383,10 +383,10 @@ async function deleteTagRecord(serviceListingId, tagValue) {
 
   // Step 2: Delete each tag record found
   for (const record of result.records) {
-    const deleteResponse = await fetch(`${instanceUrl}/services/data/v63.0/sobjects/Tags__c/${record.Id}`, {
+    const deleteResponse = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Tags__c/${record.Id}`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': `Bearer ${state.accessToken}`
       }
     });
 
@@ -485,11 +485,11 @@ function getMismatchedArticles(sfRecords, combinedFiltered) {
 
 // Function to update a service listing record
 async function updateServiceListingRecord(serviceListingId, fields) {
-  const response = await fetch(`${instanceUrl}/services/data/v63.0/sobjects/Service_Listing__c/${serviceListingId}`, {
+  const response = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Service_Listing__c/${serviceListingId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
+      'Authorization': `Bearer ${state.accessToken}`
     },
     body: JSON.stringify(fields)
   });
@@ -509,7 +509,7 @@ const fieldLabels = {
   Who_has_died__c: { label: "Who Has Died", picklist: true }
 };
 
-async function reviewChanges() {
+async function reviewChanges(state) {
   try {
 		
 		const reviewBtn = document.getElementById('reviewBtn');
@@ -524,14 +524,14 @@ async function reviewChanges() {
 		await fetchAllSFRecords();
 
     // Get mismatches
-    pendingUpdates = await getMismatchedArticles(sfRecords, window.combinedFiltered);
-		console.log(`${pendingUpdates.length} mismatched articles found`);
+    state.pendingUpdates = await getMismatchedArticles(state.sfRecords, window.combinedFiltered);
+		console.log(`${state.pendingUpdates.length} mismatched articles found`);
 
     // Render report
-    if (pendingUpdates.length === 0) {
+    if (state.pendingUpdates.length === 0) {
       container.innerHTML = "<p>No updates required.</p>";
     } else {
-			const theseUpdates = pendingUpdates.slice(0,NUMBER_OF_CHANGES);
+			const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
 			container.innerHTML =
 				`
 				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
@@ -540,7 +540,7 @@ async function reviewChanges() {
 						records at a time and then you can sync them to the CRM, by pressing the Sync Batch to CRM
 						button. Then you can request the next batch of changes, by clicking the Review Changes 
 						button.</p>
-						<p>This batch of ${theseUpdates.length} CRM records that need updating out of total of ${pendingUpdates.length}:</p>
+						<p>This batch of ${theseUpdates.length} CRM records that need updating out of total of ${state.pendingUpdates.length}:</p>
 				 <ol>${theseUpdates.map(u => {
 					const fieldChanges = Object.entries(u.fieldsToUpdate || {}).map(([field, newValue]) => {
 						const { label, picklist } = fieldLabels[field] || { label: field, picklist: false };
@@ -611,7 +611,7 @@ async function reviewChanges() {
 }
 
 // sync changes to CRM
-async function syncTitles() {
+async function syncTitles(state) {
 
 	const reviewBtn = document.getElementById('reviewBtn');
 	const syncBtn = document.getElementById('syncBtn');
@@ -621,8 +621,8 @@ async function syncTitles() {
 	container = document.getElementById("update-records");
 	container.innerHTML = 'Syncing ...';
 	
-	if (pendingUpdates.length) {
-		const theseUpdates = pendingUpdates.slice(0,NUMBER_OF_CHANGES).slice(0,1);
+	if (state.pendingUpdates.length) {
+		const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES).slice(0,1);
 		console.log(theseUpdates);
 		await updateRecordsInBatches(theseUpdates,createTagRecord,deleteTagRecord,updateServiceListingRecord);
 		console.log(`Update complete for ${theseUpdates.length}`);
@@ -675,14 +675,19 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
 // Initialize everything after DOM is ready
 window.addEventListener('load', async () => {
 
-	// hide steps 2-4 initially
-	const stepTwoSection = document.getElementById("steptwo");
+	// Check for the "test" query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const isTestMode = urlParams.get('test') === 'true';
+
+  // Hide steps 2-4 initially
+  const stepTwoSection = document.getElementById("steptwo");
   stepTwoSection.style.display = "none";
-	const stepThreeSection = document.getElementById("stepthree");
+  const stepThreeSection = document.getElementById("stepthree");
   stepThreeSection.style.display = "none";
-	const stepFourSection = document.getElementById("stepfour");
+  const stepFourSection = document.getElementById("stepfour");
   stepFourSection.style.display = "none";
 
+	// get button elements
 	const loginBtn = document.getElementById('loginBtn');
 	const reviewBtn = document.getElementById('reviewBtn');
 	const syncBtn = document.getElementById('syncBtn');
@@ -694,13 +699,13 @@ window.addEventListener('load', async () => {
 	// Extract token from hash and validate it
 	if (window.location.hash.includes('access_token')) {
 		const tokenInfo = getTokenFromHash();
-		accessToken = tokenInfo.accessToken;
-		instanceUrl = tokenInfo.instanceUrl;
+		state.accessToken = tokenInfo.accessToken;
+		state.instanceUrl = tokenInfo.instanceUrl;
 
 		// Test the token by making a lightweight Salesforce API call
-		fetch(`${instanceUrl}/services/data/v63.0/`, {
+		fetch(`${state.instanceUrl}/services/data/v63.0/`, {
 			headers: {
-				'Authorization': `Bearer ${accessToken}`
+				'Authorization': `Bearer ${state.accessToken}`
 			}
 		})
 		.then(response => {
@@ -714,13 +719,13 @@ window.addEventListener('load', async () => {
 		})
 		.catch(error => {
 			console.error("Salesforce auth failed:", error);
-			accessToken = null;
-			instanceUrl = null;
+			state.accessToken = null;
+			state.instanceUrl = null;
 			reviewBtn.disabled = true;
 
 			// Clean up URL to remove token
 			window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-		});
+			});
 	} else if (!isAtalossDomain) {
 		console.log("here");
 		if (loginBtn) loginBtn.disabled = true;
@@ -730,9 +735,9 @@ window.addEventListener('load', async () => {
 
 	// Button event listeners
 	loginBtn.addEventListener('click', loginWithSalesforce);
-	reviewBtn.addEventListener('click', reviewChanges);
-	syncBtn.addEventListener('click', syncTitles);
-	archiveBtn.addEventListener('click', archiveRecords);
+	reviewBtn.addEventListener('click', () => reviewChanges(state));
+	syncBtn.addEventListener('click', () => syncTitles(state));
+	archiveBtn.addEventListener('click', () => archiveRecords(state));
 
 	let stepOneDone = false;
 	let stepTwoDone = false;
@@ -741,21 +746,21 @@ window.addEventListener('load', async () => {
 
 	//step one
 	stepOneDone = !missingSysids();
-	//stepOneDone = true; // TESTING
+	stepOneDone = isTestMode;
 	
 	//step two
 	if (stepOneDone) {
 		// no listings missing their sytem ID, so display step two and, if connected to CRM, process step 2
 		stepTwoSection.style.display = "flex";
 
-		if(accessToken) {
+		if(state.accessToken) {
 			await fetchAllSFRecords();
-			const { missing, archived } = await findExtraListings(sfRecords, window.combinedFiltered);
+			const { missing, archived } = await findExtraListings(state.sfRecords, window.combinedFiltered);
 			displayUnknownSysIds(missing, archived);
 			stepTwoDone = (missing.length == 0 && archived.length == 0)
 		}
 	}
-	//stepTwoDone = true; // TESTING
+	stepTwoDone = isTestMode;
 	
 	// step three
 	if(stepTwoDone) {
@@ -763,21 +768,21 @@ window.addEventListener('load', async () => {
 		stepThreeSection.style.display = "flex";
 		
 		// find records that should be srchived and enable button to archive
-		findRecordsToArchive(sfRecords, window.combinedFiltered);
-		if (pendingArchive.length > 0) {
+		findRecordsToArchive(state.sfRecords, window.combinedFiltered);
+		if (state.pendingArchive.length > 0) {
 			archiveBtn.disabled = false;
 		} else {
 			stepThreeDone = true;
 		}
 	}
-	//stepThreeDone = true; // TESTING
+	stepThreeDone = isTestMode;
 	
 	// step four
 	if (stepThreeDone) {
 		// display section
 		stepFourSection.style.display = "flex";
 		
-		reviewChanges();
+		reviewChanges(state);
 	}
 
 });
