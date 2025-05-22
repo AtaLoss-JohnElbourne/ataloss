@@ -625,7 +625,7 @@ async function syncTitles(state) {
 	container.innerHTML = 'Syncing ...';
 	
 	if (state.pendingUpdates.length) {
-		const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES).slice(0,1);
+		const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
 		console.log(theseUpdates);
 		await updateRecordsInBatches(theseUpdates,createTagRecord,deleteTagRecord,updateServiceListingRecord);
 		console.log(`Update complete for ${theseUpdates.length}`);
