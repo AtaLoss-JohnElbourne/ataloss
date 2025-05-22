@@ -1,5 +1,5 @@
 const LOGIN_URL = 'https://login.salesforce.com';
-const NUMBER_OF_CHANGES = 1;
+const NUMBER_OF_CHANGES = 10;
 const crmSlUrl = (id) =>
 		`https://ataloss.lightning.force.com/lightning/r/Service_Listing__c/${id}/view`;
 
