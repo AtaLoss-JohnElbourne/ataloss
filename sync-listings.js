@@ -79,12 +79,8 @@ function missingSysids() {
 	const removedItems = [];
 
 	// Process arrays
-	console.log(window.sectionData['national'].length);
-	
 	const nationalFiltered = filterAndTransform(window.sectionData['national'], removedItems);
-	console.log(removedItems.length);
 	const regionalFiltered = filterAndTransform(window.sectionData['regional'], removedItems);
-	console.log(removedItems.length);
 
 	// Clean up original arrays to free memory
 	window.sectionData['national'].length = 0;
@@ -280,7 +276,7 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 
   const container = document.getElementById('archive-records');
   if (state.pendingArchive.length === 0) {
-    container.innerHTML = '<p>No records need to be archived.</p>';
+    container.innerHTML = '<p>All good.</p>';
   } else {
 		state.pendingArchive.sort((a, b) => a.Service_Listing_Name__c.localeCompare(b.Service_Listing_Name__c, undefined, { sensitivity: 'base' }));
 
@@ -626,7 +622,6 @@ async function syncTitles(state) {
 	
 	if (state.pendingUpdates.length) {
 		const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
-		console.log(theseUpdates);
 		await updateRecordsInBatches(theseUpdates,createTagRecord,deleteTagRecord,updateServiceListingRecord);
 		console.log(`Update complete for ${theseUpdates.length}`);
 	} else {
@@ -730,7 +725,6 @@ window.addEventListener('load', async () => {
 			window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
 			});
 	} else if (!isAtalossDomain) {
-		console.log("here");
 		if (loginBtn) loginBtn.disabled = true;
     unknownSysIdsDiv.innerHTML = '<p style="color: red;"><strong>You can only connect to the CRM if viewing this page under the www.ataloss.org domain.</strong></p>';
     unknownSysIdsDiv.style.display = 'block';
@@ -745,11 +739,10 @@ window.addEventListener('load', async () => {
 	let stepOneDone = false;
 	let stepTwoDone = false;
 	let stepThreeDone = false;
-	let stepFourDone = false;
 
 	//step one
 	stepOneDone = !missingSysids();
-	stepOneDone = isTestMode;
+	stepOneDone ||= isTestMode;
 	
 	//step two
 	if (stepOneDone) {
@@ -763,22 +756,24 @@ window.addEventListener('load', async () => {
 			stepTwoDone = (missing.length == 0 && archived.length == 0)
 		}
 	}
-	stepTwoDone = isTestMode;
+	stepTwoDone ||= isTestMode;
 	
 	// step three
 	if(stepTwoDone) {
 		// display section
 		stepThreeSection.style.display = "flex";
 		
-		// find records that should be srchived and enable button to archive
-		findRecordsToArchive(state.sfRecords, window.combinedFiltered);
-		if (state.pendingArchive.length > 0) {
-			archiveBtn.disabled = false;
-		} else {
-			stepThreeDone = true;
+		// find records that should be archived and enable button to archive
+		if(state.accessToken) {
+			findRecordsToArchive(state.sfRecords, window.combinedFiltered);
+			if (state.pendingArchive.length > 0) {
+				archiveBtn.disabled = false;
+			} else {
+				stepThreeDone = true;
+			}
 		}
 	}
-	stepThreeDone = isTestMode;
+	stepThreeDone ||= isTestMode && state.accessToken;
 	
 	// step four
 	if (stepThreeDone) {
