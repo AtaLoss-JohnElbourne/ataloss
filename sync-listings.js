@@ -1,5 +1,5 @@
 const CLIENT_ID = '3MVG9Ve.2wqUVx_bJYpcLqDC5bMiXOH6ytcHMDDKZe4BfDF8.SS9hNrfOOvvruf0QhCQWpM2o3AqWU8S0Kf1N';
-const REDIRECT_URI = 'https://www.ataloss.org/service-update-2'; // or your actual domain
+const REDIRECT_URI = 'https://www.ataloss.org/service-update'; // or your actual domain
 const LOGIN_URL = 'https://login.salesforce.com';
 const NUMBER_OF_CHANGES = 10;
 
