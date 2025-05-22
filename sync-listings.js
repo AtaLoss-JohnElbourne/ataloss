@@ -293,7 +293,7 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 				 forget to regenerate the cache and Ctrl Refresh this page, as this page is based on that cache.</p>
       <ul>
         ${state.pendingArchive.map(r =>
-          `<li><a href="${crmSlUrl(r.Id)}">${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</a></li>`
+          `<li><a href="${crmSlUrl(r.Id)}" target="_blank">${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</a></li>`
         ).join('')}
       </ul>`;
     container.innerHTML = html;
@@ -590,7 +590,7 @@ async function reviewChanges(state) {
 
 					return `
 						<li>
-							<strong><a href="${crmSlUrl(u.id)}">${u.title}</strong> (${u.slId})</a>
+							<strong><a href="${crmSlUrl(u.id)}" target="_blank">${u.title}</strong> (${u.slId})</a>
 							<ul>
 								${fieldChanges}
 								${tagChanges}
