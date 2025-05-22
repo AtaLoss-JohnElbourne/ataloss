@@ -1,5 +1,7 @@
 const LOGIN_URL = 'https://login.salesforce.com';
 const NUMBER_OF_CHANGES = 10;
+const crmSlUrl = (id) =>
+		`https://ataloss.lightning.force.com/lightning/r/Service_Listing__c/${id}/view`;
 
 const state = {
   accessToken: null,
@@ -291,7 +293,7 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 				 forget to regenerate the cache and Ctrl Refresh this page, as this page is based on that cache.</p>
       <ul>
         ${state.pendingArchive.map(r =>
-          `<li>${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</li>`
+          `<li><a href="${crmSlUrl(r.Id)}">${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</a></li>`
         ).join('')}
       </ul>`;
     container.innerHTML = html;
@@ -467,6 +469,7 @@ function getMismatchedArticles(sfRecords, combinedFiltered) {
     if (needsUpdate || tagsChanged) {
       updates.push({
         id: sfRecord.Id,
+				slId: sfRecord.Service_Listing_System_ID__c,
 				title: sfRecord.Service_Listing_Name__c,
         fieldsToUpdate,
 				originalValues,
@@ -587,7 +590,7 @@ async function reviewChanges(state) {
 
 					return `
 						<li>
-							<strong>${u.title}</strong> (${u.id})
+							<strong><a href="${crmSlUrl(u.id)}">${u.title}</strong> (${u.slId})</a>
 							<ul>
 								${fieldChanges}
 								${tagChanges}
