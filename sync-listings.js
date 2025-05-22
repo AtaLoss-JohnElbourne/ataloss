@@ -1,5 +1,5 @@
 const LOGIN_URL = 'https://login.salesforce.com';
-const NUMBER_OF_CHANGES = 10;
+const NUMBER_OF_CHANGES = 1;
 const crmSlUrl = (id) =>
 		`https://ataloss.lightning.force.com/lightning/r/Service_Listing__c/${id}/view`;
 
@@ -72,43 +72,124 @@ function displayRemovedItems(removedItems,container) {
 	container.appendChild(list);
 }
 
-// find listing that don't have a salesforce system ID
-function missingSysids() {
-	
-	// Track removed entries (no Salesforce ID)
-	const removedItems = [];
+function displayDuplicateItems(duplicatesMap, container) {
+  const intro = document.createElement('p');
+  intro.innerHTML = `
+    The following listings have duplicate Salesforce system IDs. Either one of 
+		the listings needs to have a new System ID or it needs unpublishing. Don't 
+		forget to regenerate the cache and Ctrl Refresh this page, as this page is 
+		based on that cache. 
+  `;
+  container.appendChild(intro);
 
-	// Process arrays
-	const nationalFiltered = filterAndTransform(window.sectionData['national'], removedItems);
-	const regionalFiltered = filterAndTransform(window.sectionData['regional'], removedItems);
+  const list = document.createElement('ul');
 
-	// Clean up original arrays to free memory
-	window.sectionData['national'].length = 0;
-	window.sectionData['regional'].length = 0;
-	delete window.sectionData['national'];
-	delete window.sectionData['regional'];
-	
-	// display any listings without a sys ID
-	const container = document.getElementById('missing-sysids');
-	container.style.display = 'block'; // make sure it's visible
+  // Iterate over each duplicate system ID and its associated items
+	console.log(duplicatesMap);
+  Object.entries(duplicatesMap).forEach(([systemId, items]) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>System ID: ${systemId}</strong>`;
+    const sublist = document.createElement('ul');
 
-	if (removedItems.length > 0) {
-		displayRemovedItems(removedItems,container);
-	} else {
-		container.innerHTML = "<p>All good.</p>";
-	}
+    // Add each item associated with the duplicate system ID
+    items.forEach(item => {
+      const subItem = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = item.fullUrl.replace('www.ataloss.org', 'ataloss.squarespace.com');
+      link.textContent = item.title;
+      link.target = '_blank'; // Open in new tab
+      subItem.appendChild(link);
+      sublist.appendChild(subItem);
+    });
 
-	// Combine valid entries into one array
-	window.combinedFiltered = [...nationalFiltered, ...regionalFiltered];
-	console.log(`${window.combinedFiltered.length} non-TBJ blog listings found`);
-	
-	// Optional: Clear intermediate arrays
-	nationalFiltered.length = 0;
-	regionalFiltered.length = 0;
-	
-	return removedItems.length > 0;
+    li.appendChild(sublist);
+    list.appendChild(li);
+  });
+
+  container.appendChild(list);
 }
 
+// Helper function to find duplicates across arrays
+function findDuplicates(arr) {
+  const idCounts = {};
+  const duplicateIds = new Set();
+  const duplicatesMap = {};
+
+  // First pass: Count occurrences of each salesforceId
+  arr.forEach(item => {
+    if (!item.salesforceId) return; // Skip items without a Salesforce ID
+    idCounts[item.salesforceId] = (idCounts[item.salesforceId] || 0) + 1;
+
+    // If the count is 2 or more, mark the ID as duplicated
+    if (idCounts[item.salesforceId] === 2) {
+      duplicateIds.add(item.salesforceId);
+    }
+  });
+
+  // Second pass: Collect all items with duplicated IDs
+  arr.forEach(item => {
+    if (duplicateIds.has(item.salesforceId)) {
+      if (!duplicatesMap[item.salesforceId]) {
+        duplicatesMap[item.salesforceId] = [];
+      }
+      duplicatesMap[item.salesforceId].push(item);
+    }
+  });
+
+  return duplicatesMap;
+}
+
+// find listing that don't have a salesforce system ID
+function missingSysids() {
+  // Track removed entries (no Salesforce ID)
+  const removedItems = [];
+  const duplicateItemsMap = {};
+
+  // Process arrays
+  const nationalFiltered = filterAndTransform(window.sectionData['national'], removedItems);
+  const regionalFiltered = filterAndTransform(window.sectionData['regional'], removedItems);
+
+  // Combine national and regional arrays to find duplicates across both
+  const combinedArray = [...window.sectionData['national'], ...window.sectionData['regional']];
+  const duplicatesMap = findDuplicates(combinedArray);
+
+  // Clean up original arrays to free memory
+  window.sectionData['national'].length = 0;
+  window.sectionData['regional'].length = 0;
+  delete window.sectionData['national'];
+  delete window.sectionData['regional'];
+
+  // Display any listings without a system ID
+  const container = document.getElementById('missing-sysids');
+  container.style.display = 'block'; // Make sure it's visible
+
+  if (removedItems.length > 0) {
+    displayRemovedItems(removedItems, container);
+  } else {
+		const allGood = document.createElement('p');
+		allGood.innerHTML = `
+			There aren't any listings missing a CRM System ID.
+		`;
+		container.appendChild(allGood);
+  }
+
+  // Display duplicates
+  if (Object.keys(duplicatesMap).length > 0) {
+    displayDuplicateItems(duplicatesMap, container);
+  } else {
+		const allGood = document.createElement('p');
+		allGood.innerHTML = `
+			There are no listings with duplicated CRM System IDs
+		`;
+		container.appendChild(allGood);
+  }
+
+  // Combine valid entries into one array
+  window.combinedFiltered = [...nationalFiltered, ...regionalFiltered];
+  console.log(`${window.combinedFiltered.length} non-TBJ blog listings found`);
+
+  return removedItems.length > 0 || Object.keys(duplicatesMap).length > 0;
+}
 
 ////////////////////////////////////////////////////////
 // CONNECT TO CRM
@@ -379,9 +460,10 @@ async function deleteTagRecord(serviceListingId, tagValue) {
 
   const result = await queryResponse.json();
 
-  // Step 2: Delete each tag record found
-  for (const record of result.records) {
-    const deleteResponse = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Tags__c/${record.Id}`, {
+  // Step 2: Delete only one instance of the tag if duplicates exist
+  if (result.records.length > 0) {
+    const recordToDelete = result.records[0]; // Select the first record to delete
+    const deleteResponse = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Tags__c/${recordToDelete.Id}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${state.accessToken}`
@@ -390,8 +472,12 @@ async function deleteTagRecord(serviceListingId, tagValue) {
 
     if (!deleteResponse.ok) {
       const errorDetails = await deleteResponse.json().catch(() => ({}));
-      throw new Error(`Failed to delete tag record ${record.Id}: ${deleteResponse.status} ${deleteResponse.statusText} — ${JSON.stringify(errorDetails)}`);
+      throw new Error(`Failed to delete tag record ${recordToDelete.Id}: ${deleteResponse.status} ${deleteResponse.statusText} — ${JSON.stringify(errorDetails)}`);
     }
+
+    console.log(`Deleted tag record ${recordToDelete.Id} for tag value "${tagValue}"`);
+  } else {
+    console.log(`No tag records found for tag value "${tagValue}"`);
   }
 }
 
@@ -531,6 +617,7 @@ async function reviewChanges(state) {
       container.innerHTML = "<p>No updates required.</p>";
     } else {
 			const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
+			console.log(theseUpdates);
 			container.innerHTML =
 				`
 				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
@@ -551,7 +638,21 @@ async function reviewChanges(state) {
 							const newList = newValueRaw.split(';').map(s => s.trim()).filter(Boolean);
 
 							const added = newList.filter(v => !oldList.includes(v));
-							const removed = oldList.filter(v => !newList.includes(v));
+							
+							// Create a frequency map for newList
+							const newListFrequency = newList.reduce((freq, value) => {
+							  freq[value] = (freq[value] || 0) + 1;
+							  return freq;
+							}, {});
+
+							// Filter out values from oldList that are not in newList or are duplicates
+							const removed = oldList.filter(value => {
+							  if (newListFrequency[value]) {
+							    newListFrequency[value]--; // Decrement the count for this value
+							    return false; // Value exists in newList, so it's not "removed"
+							  }
+							  return true; // Value is not in newList or is an extra duplicate
+							});
 
 							const changeList = [
 								...(added.length ? [`<li>Add: ${added.join(', ')}</li>`] : []),
@@ -570,9 +671,20 @@ async function reviewChanges(state) {
 						tag => !u.locationTagsUpdate.current.includes(tag)
 					) || [];
 
-					const removedTags = u.locationTagsUpdate?.current?.filter(
-						tag => !u.locationTagsUpdate.desired.includes(tag)
-					) || [];
+					// Create a frequency map for desired tags
+					const desiredTagsFrequency = u.locationTagsUpdate?.desired?.reduce((freq, tag) => {
+					  freq[tag] = (freq[tag] || 0) + 1;
+					  return freq;
+					}, {});
+
+					// Filter out tags from current that are not in desired or are duplicates
+					const removedTags = u.locationTagsUpdate?.current?.filter(tag => {
+					  if (desiredTagsFrequency?.[tag]) {
+					    desiredTagsFrequency[tag]--; // Decrement the count for this tag
+					    return false; // Tag exists in desired, so it's not "removed"
+					  }
+					  return true; // Tag is not in desired or is an extra duplicate
+					}) || [];
 					
 					const tagChanges = 
 						(addedTags.length || removedTags.length)
@@ -634,7 +746,7 @@ async function syncTitles(state) {
 	container.innerHTML = '<p>Those changes are now done. Press the Review Changes button, to get the next batch.<p>';
 }
 
-// Sample update function that processes tag changes first
+// update function that processes tag changes first
 async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord, updateServiceListingRecord) {
   for (const update of updates) {
     const { id, locationTagsUpdate } = update;
@@ -643,9 +755,26 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
       const { current, desired } = locationTagsUpdate;
 
       const toAdd = desired.filter(tag => !current.includes(tag));
-      const toRemove = current.filter(tag => !desired.includes(tag));
+      
+      // Create a frequency map for desired tags
+      const desiredFrequency = desired.reduce((freq, tag) => {
+        freq[tag] = (freq[tag] || 0) + 1;
+        return freq;
+      }, {});
 
-      for (const tag of toAdd) {
+      // Filter out tags from current that are not in desired or are duplicates
+      const toRemove = current.filter(tag => {
+        if (desiredFrequency[tag]) {
+          desiredFrequency[tag]--; // Decrement the count for this tag
+          return false; // Tag exists in desired, so it's not "removed"
+        }
+        return true; // Tag is not in desired or is an extra duplicate
+      });
+
+			console.log(toAdd);
+			console.log(toRemove);
+
+			for (const tag of toAdd) {
         await createTagRecord(id, tag);
       }
 
@@ -654,6 +783,7 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
       }
     }
   }
+	return;
 
   // Batch regular field updates
   const fieldUpdates = updates.filter(u => Object.keys(u.fieldsToUpdate).length);
