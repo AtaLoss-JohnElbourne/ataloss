@@ -85,7 +85,6 @@ function displayDuplicateItems(duplicatesMap, container) {
   const list = document.createElement('ul');
 
   // Iterate over each duplicate system ID and its associated items
-	console.log(duplicatesMap);
   Object.entries(duplicatesMap).forEach(([systemId, items]) => {
     const li = document.createElement('li');
     li.innerHTML = `<strong>System ID: ${systemId}</strong>`;
@@ -617,7 +616,6 @@ async function reviewChanges(state) {
       container.innerHTML = "<p>No updates required.</p>";
     } else {
 			const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
-			console.log(theseUpdates);
 			container.innerHTML =
 				`
 				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
@@ -771,9 +769,6 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
         return true; // Tag is not in desired or is an extra duplicate
       });
 
-			console.log(toAdd);
-			console.log(toRemove);
-
 			for (const tag of toAdd) {
         await createTagRecord(id, tag);
       }
@@ -783,7 +778,6 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
       }
     }
   }
-	return;
 
   // Batch regular field updates
   const fieldUpdates = updates.filter(u => Object.keys(u.fieldsToUpdate).length);
