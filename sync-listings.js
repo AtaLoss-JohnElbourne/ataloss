@@ -547,7 +547,15 @@ function getMismatchedArticles(sfRecords, combinedFiltered) {
 
     const tagsChanged = currentSorted.join('|') !== desiredSorted.join('|');
 
-    if (needsUpdate || tagsChanged) {
+    // Add the `updatedOn` timestamp only if other changes are being made
+    if ((needsUpdate || tagsChanged) && item.updatedOn) {
+      const updatedDate = new Date(parseInt(item.updatedOn, 10)).toISOString(); // Convert timestamp to ISO format
+      fieldsToUpdate.Date_Last_Updated_on_Website__c = updatedDate;
+      fieldsToUpdate.Date_of_most_recent_verification__c = updatedDate;
+    }
+
+    // Add the update if any fields need to be updated
+    if (needsUpdate) {
       updates.push({
         id: sfRecord.Id,
 				slId: sfRecord.Service_Listing_System_ID__c,
@@ -595,16 +603,15 @@ const fieldLabels = {
 
 async function reviewChanges(state) {
   try {
-		
-		const reviewBtn = document.getElementById('reviewBtn');
+				const reviewBtn = document.getElementById('reviewBtn');
 		const syncBtn = document.getElementById('syncBtn');
 		reviewBtn.disabled = true;
 		syncBtn.disabled = true;
 		
-		container = document.getElementById("update-records");
+const container = document.getElementById("update-records");
 		container.innerHTML = 'Updating ...';
 
-		// refresh SF records
+		// Refresh Salesforce records
 		await fetchAllSFRecords();
 
     // Get mismatches
@@ -615,9 +622,8 @@ async function reviewChanges(state) {
     if (state.pendingUpdates.length === 0) {
       container.innerHTML = "<p>No updates required.</p>";
     } else {
-			const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
-			container.innerHTML =
-				`
+			const theseUpdates = state.pendingUpdates.slice(0, NUMBER_OF_CHANGES);
+			container.innerHTML = 				`
 				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
 						articles with unarchived CRM Service Listing records, is to reflect the latest values on 
 						the listings, to the CRM records. Changes will be displayed below ${NUMBER_OF_CHANGES} 
@@ -626,7 +632,12 @@ async function reviewChanges(state) {
 						button.</p>
 						<p>This batch of ${theseUpdates.length} CRM records that need updating out of total of ${state.pendingUpdates.length}:</p>
 				 <ol>${theseUpdates.map(u => {
-					const fieldChanges = Object.entries(u.fieldsToUpdate || {}).map(([field, newValue]) => {
+          // Filter out date fields from the display
+          const filteredFieldsToUpdate = Object.entries(u.fieldsToUpdate || {}).filter(
+            ([field]) => !['Date_Last_Updated_on_Website__c', 'Date_of_most_recent_verification__c'].includes(field)
+          );
+
+          const fieldChanges = filteredFieldsToUpdate.map(([field, newValue]) => {
 						const { label, picklist } = fieldLabels[field] || { label: field, picklist: false };
 						const oldValueRaw = u.originalValues?.[field] ?? "";
 						const newValueRaw = newValue ?? "";
