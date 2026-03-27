@@ -4,6 +4,7 @@ const BRANCH = 'main';
 const FILE_PATH = window.servicesDataFileName || 'services-data.js';
 const COMMIT_MESSAGE = 'Services Data Update';
 const BASE_URL = window.location.origin;
+const SCRIPT_VERSION = '2026-03-27.1';
 
 console.log('HERE');
 console.log(window.servicesDataFileName);
@@ -380,6 +381,7 @@ window.addEventListener("load", function () {
 
 				document.body.appendChild(popup);
 				popup.appendChild(logArea);
+				logToPopup(`Generator script version: ${SCRIPT_VERSION}`);
 				logToPopup('Generating Services Data Cache File');
 
 				const githubToken = document.getElementById('patPassword').value;
