@@ -233,16 +233,49 @@ window.addEventListener("load", function () {
 
 			const commitData = await commitRes.json();
 			console.log(commitData);
-			const fileStats = commitData.files.find(f => f.filename === FILE_PATH);
+		const fileStats = commitData.files.find(f => f.filename === FILE_PATH);
 			if (fileStats) {
 				logToPopup(`✅ File updated: +${fileStats.additions}, -${fileStats.deletions}, Δ${fileStats.changes}`);
 			}
 			else {
 				logToPopup("✅ No changes");
 			}
+			return newSha;
 		} else {
 			logToPopup('❌ Error: ' + JSON.stringify(data));
 		}
+	}
+
+	async function waitForPagesPublish(githubToken) {
+		logToPopup('⏳ Waiting for GitHub Pages to publish...');
+		const maxAttempts = 30;
+		const intervalMs = 10000;
+		const deploymentsUrl = `https://api.github.com/repos/${USERNAME}/${REPO}/pages/deployments`;
+		const headers = {
+			'Authorization': `Bearer ${githubToken}`,
+			'Accept': 'application/vnd.github+json'
+		};
+
+		for (let i = 0; i < maxAttempts; i++) {
+			await new Promise(r => setTimeout(r, intervalMs));
+			const res = await fetch(deploymentsUrl, { headers });
+			if (!res.ok) {
+				logToPopup('⚠️ Could not check Pages deployment status — skipping wait.');
+				return;
+			}
+			const data = await res.json();
+			const latest = data.deployments?.[0];
+			if (!latest) continue;
+			logToPopup(`Pages deployment: ${latest.status} (attempt ${i + 1}/${maxAttempts})`);
+			if (latest.status === 'deployment_complete') {
+				logToPopup('✅ GitHub Pages published.');
+				return;
+			}
+			if (latest.status?.includes('error')) {
+				throw new Error('GitHub Pages deployment failed: ' + latest.status);
+			}
+		}
+		logToPopup('⚠️ Timed out waiting for GitHub Pages to publish.');
 	}
 
 	function getLogArea() {
@@ -292,7 +325,10 @@ window.addEventListener("load", function () {
 				if (servicesData.length > 0) {
 					const content = generateJavascript(servicesData);
 					const base64Content = btoa(unescape(encodeURIComponent(content)));
-					await updateGitHub(githubToken, sha, base64Content, COMMIT_MESSAGE);
+					const commitSha = await updateGitHub(githubToken, sha, base64Content, COMMIT_MESSAGE);
+					if (commitSha) {
+						await waitForPagesPublish(githubToken);
+					}
 					logToPopup("✅ Update complete.");
 				}
 				showCloseButton();
