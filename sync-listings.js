@@ -592,8 +592,8 @@ function getMismatchedArticles(sfRecords, combinedFiltered) {
       fieldsToUpdate.Date_of_most_recent_verification__c = updatedDate;
     }
 
-    // Add the update if any fields need to be updated
-    if (needsUpdate) {
+    // Add the update if any fields need to be updated, or if tags need to be updated
+    if (needsUpdate || tagsChanged) {
       updates.push({
         id: sfRecord.Id,
 				slId: sfRecord.Service_Listing_System_ID__c,
