@@ -198,52 +198,66 @@ window.addEventListener("load", function () {
 		return data.sha;
 	}
 
-	async function updateGitHub(githubToken,sha, base64Content, commitMessage) {
-	
+	async function updateGitHub(githubToken, base64Content, commitMessage) {
 		logToPopup('Uploading file to GitHub ...');
 		const url = `https://api.github.com/repos/${USERNAME}/${REPO}/contents/${FILE_PATH}`;
-		const body = {
-			message: commitMessage,
-			content: base64Content,
-			sha: sha,
-			branch: BRANCH
+		const headers = {
+			'Authorization': `Bearer ${githubToken}`,
+			'Accept': 'application/vnd.github+json',
+			'Content-Type': 'application/json'
 		};
-		const res = await fetch(url, {
-			method: 'PUT',
-			headers: {
-				'Authorization': `Bearer ${githubToken}`,
-				'Accept': 'application/vnd.github+json',
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify(body)
-		});
-		const data = await res.json();
-		console.log(data);
-		if (res.ok) {
-			logToPopup('✅ File updated to GitHub: ' + data.content.path);
-			
-			const newSha = data.commit.sha;
 
-			const commitRes = await fetch(`https://api.github.com/repos/${USERNAME}/${REPO}/commits/${newSha}`, {
-				headers: {
-					'Authorization': `Bearer ${githubToken}`,
-					'Accept': 'application/vnd.github+json'
-				}
+		let currentSha = await getGitHubSha(githubToken);
+
+		for (let attempt = 1; attempt <= 2; attempt++) {
+			const body = {
+				message: commitMessage,
+				content: base64Content,
+				sha: currentSha,
+				branch: BRANCH
+			};
+
+			const res = await fetch(url, {
+				method: 'PUT',
+				headers,
+				body: JSON.stringify(body)
 			});
+			const data = await res.json();
+			console.log(data);
 
-			const commitData = await commitRes.json();
-			console.log(commitData);
-		const fileStats = commitData.files.find(f => f.filename === FILE_PATH);
-			if (fileStats) {
-				logToPopup(`✅ File updated: +${fileStats.additions}, -${fileStats.deletions}, Δ${fileStats.changes}`);
+			if (res.ok) {
+				logToPopup('✅ File updated to GitHub: ' + data.content.path);
+				const newSha = data.commit.sha;
+
+				const commitRes = await fetch(`https://api.github.com/repos/${USERNAME}/${REPO}/commits/${newSha}`, {
+					headers: {
+						'Authorization': `Bearer ${githubToken}`,
+						'Accept': 'application/vnd.github+json'
+					}
+				});
+
+				const commitData = await commitRes.json();
+				console.log(commitData);
+				const fileStats = commitData.files.find(f => f.filename === FILE_PATH);
+				if (fileStats) {
+					logToPopup(`✅ File updated: +${fileStats.additions}, -${fileStats.deletions}, Δ${fileStats.changes}`);
+				} else {
+					logToPopup("✅ No changes");
+				}
+				return newSha;
 			}
-			else {
-				logToPopup("✅ No changes");
+
+			const message = data?.message || 'Unknown GitHub API error';
+			if (res.status === 409 && attempt < 2) {
+				logToPopup('ℹ️ SHA changed on GitHub, retrying upload with latest version...');
+				currentSha = await getGitHubSha(githubToken);
+				continue;
 			}
-			return newSha;
-		} else {
-			logToPopup('❌ Error: ' + JSON.stringify(data));
+
+			throw new Error(message);
 		}
+
+		throw new Error('Upload failed after retry.');
 	}
 
 	async function waitForPagesPublish(githubToken) {
@@ -319,17 +333,15 @@ window.addEventListener("load", function () {
 				const githubToken = document.getElementById('patPassword').value;
 				console.log('got token');
 				console.log(githubToken);
-				const sha = await getGitHubSha(githubToken);
-				console.log('got shq');
 				const servicesData = await getServicesData();
 				if (servicesData.length > 0) {
 					const content = generateJavascript(servicesData);
 					const base64Content = btoa(unescape(encodeURIComponent(content)));
-					const commitSha = await updateGitHub(githubToken, sha, base64Content, COMMIT_MESSAGE);
+					const commitSha = await updateGitHub(githubToken, base64Content, COMMIT_MESSAGE);
 					if (commitSha) {
 						await waitForPagesPublish(githubToken);
+						logToPopup("✅ Update complete.");
 					}
-					logToPopup("✅ Update complete.");
 				}
 				showCloseButton();
 			} catch (err) {
