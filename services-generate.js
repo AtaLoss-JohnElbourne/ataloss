@@ -274,7 +274,8 @@ window.addEventListener("load", function () {
 			await new Promise(r => setTimeout(r, intervalMs));
 			const res = await fetch(deploymentsUrl, { headers });
 			if (!res.ok) {
-				logToPopup('⚠️ Could not check Pages deployment status — skipping wait.');
+				logToPopup(`⚠️ Pages deployment endpoint unavailable (${res.status}). Trying Actions workflow status...`);
+				await waitForPagesWorkflowPublish(githubToken, maxAttempts, intervalMs);
 				return;
 			}
 			const data = await res.json();
@@ -290,6 +291,57 @@ window.addEventListener("load", function () {
 			}
 		}
 		logToPopup('⚠️ Timed out waiting for GitHub Pages to publish.');
+	}
+
+	async function waitForPagesWorkflowPublish(githubToken, maxAttempts = 30, intervalMs = 10000) {
+		const runsUrl = `https://api.github.com/repos/${USERNAME}/${REPO}/actions/runs?branch=${BRANCH}&per_page=10`;
+		const authHeaders = {
+			'Authorization': `Bearer ${githubToken}`,
+			'Accept': 'application/vnd.github+json'
+		};
+		const publicHeaders = {
+			'Accept': 'application/vnd.github+json'
+		};
+
+		for (let i = 0; i < maxAttempts; i++) {
+			await new Promise(r => setTimeout(r, intervalMs));
+			let res = await fetch(runsUrl, { headers: authHeaders });
+			if (!res.ok) {
+				res = await fetch(runsUrl, { headers: publicHeaders });
+			}
+
+			if (!res.ok) {
+				logToPopup(`⚠️ Could not check Actions workflow status (${res.status}) — skipping wait.`);
+				return;
+			}
+
+			const data = await res.json();
+			const run = (data.workflow_runs || []).find(r => {
+				const name = (r.name || '').toLowerCase();
+				const path = (r.path || '').toLowerCase();
+				return name.includes('pages build and deployment') || path.includes('pages');
+			});
+
+			if (!run) {
+				logToPopup(`Waiting for Pages workflow run to appear (attempt ${i + 1}/${maxAttempts})`);
+				continue;
+			}
+
+			const status = run.status;
+			const conclusion = run.conclusion;
+			logToPopup(`Pages workflow: ${status}${conclusion ? ` / ${conclusion}` : ''} (attempt ${i + 1}/${maxAttempts})`);
+
+			if (status === 'completed' && conclusion === 'success') {
+				logToPopup('✅ GitHub Pages published (via Actions workflow).');
+				return;
+			}
+
+			if (status === 'completed' && conclusion && conclusion !== 'success') {
+				throw new Error('GitHub Pages workflow failed: ' + conclusion);
+			}
+		}
+
+		logToPopup('⚠️ Timed out waiting for GitHub Pages workflow completion.');
 	}
 
 	function getLogArea() {
