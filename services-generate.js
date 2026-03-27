@@ -6,11 +6,6 @@ const COMMIT_MESSAGE = 'Services Data Update';
 const BASE_URL = window.location.origin;
 const SCRIPT_VERSION = '2026-03-27.1';
 
-console.log('HERE');
-console.log(window.servicesDataFileName);
-console.log(FILE_PATH);
-console.log('THERE');
-
 window.addEventListener("load", function () {
 
 	function logToPopup(msg) {
@@ -20,6 +15,20 @@ window.addEventListener("load", function () {
 	  const logArea = getLogArea();
 	  logArea.appendChild(p);
 	  logArea.scrollTop = logArea.scrollHeight;
+	}
+
+	function appendProgressDot(progressId, initialText) {
+		const logArea = getLogArea();
+		let p = logArea.querySelector(`[data-progress-id="${progressId}"]`);
+		if (!p) {
+			p = document.createElement("p");
+			p.style.margin = "0 0 10px";
+			p.setAttribute("data-progress-id", progressId);
+			p.textContent = initialText;
+			logArea.appendChild(p);
+		}
+		p.textContent += '.';
+		logArea.scrollTop = logArea.scrollHeight;
 	}
 
 	function showCloseButton() {
@@ -55,7 +64,6 @@ window.addEventListener("load", function () {
 			while(true) {
 				page += 1;
 				url = jsonPath + offset + "&" + format;
-				console.log("URL: " + url);
 				logToPopup(`Fetching page ${page}, Services so far: ${accumulatedData.length}`);
 				const response = await fetch(url);
 				if (!response.ok) {
@@ -224,7 +232,6 @@ window.addEventListener("load", function () {
 				body: JSON.stringify(body)
 			});
 			const data = await res.json();
-			console.log(data);
 
 			if (res.ok) {
 				logToPopup('✅ File updated to GitHub: ' + data.content.path);
@@ -238,7 +245,6 @@ window.addEventListener("load", function () {
 				});
 
 				const commitData = await commitRes.json();
-				console.log(commitData);
 				const fileStats = commitData.files.find(f => f.filename === FILE_PATH);
 				if (fileStats) {
 					logToPopup(`✅ File updated: +${fileStats.additions}, -${fileStats.deletions}, Δ${fileStats.changes}`);
@@ -330,7 +336,10 @@ window.addEventListener("load", function () {
 
 			const status = run.status;
 			const conclusion = run.conclusion;
-			logToPopup(`Pages workflow: ${status}${conclusion ? ` / ${conclusion}` : ''} (attempt ${i + 1}/${maxAttempts})`);
+
+			if (status === 'queued' || status === 'in_progress') {
+				appendProgressDot('pages-workflow', 'Pages workflow in progress');
+			}
 
 			if (status === 'completed' && conclusion === 'success') {
 				logToPopup('✅ GitHub Pages published (via Actions workflow).');
@@ -385,8 +394,6 @@ window.addEventListener("load", function () {
 				logToPopup('Generating Services Data Cache File');
 
 				const githubToken = document.getElementById('patPassword').value;
-				console.log('got token');
-				console.log(githubToken);
 				const servicesData = await getServicesData();
 				if (servicesData.length > 0) {
 					const content = generateJavascript(servicesData);
