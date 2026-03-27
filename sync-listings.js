@@ -1,5 +1,6 @@
 const LOGIN_URL = 'https://login.salesforce.com';
-const NUMBER_OF_CHANGES = 10;
+const NUMBER_OF_CHANGES = 10; // Number of changes to display
+const NUMBER_TO_UPDATE = 1; // Number of records to actually update (set to 10 when ready for production)
 const crmSlUrl = (id) =>
 		`https://ataloss.lightning.force.com/lightning/r/Service_Listing__c/${id}/view`;
 
@@ -8,7 +9,8 @@ const state = {
   instanceUrl: null,
   pendingUpdates: [],
   sfRecords: null,
-  pendingArchive: []
+  pendingArchive: [],
+  pendingDateUpdates: []
 };
 
 // Delete 'featured' array to free memory
@@ -220,7 +222,8 @@ function loginWithSalesforce() {
 const servicesSoql = `
 	SELECT Id, Service_Listing_System_ID__c, Service_Listing_Name__c, AtaLoss_Service_Listing_URL__c,
 		Age_of_person_needing_support__c, Circumstances_of_death__c, Type_of_Support__c, Who_has_died__c,
-		Archive_Record__c,  ( SELECT Location_Tag1__c FROM Tags__r )
+		Archive_Record__c, Date_Last_Updated_on_Website__c, Date_of_most_recent_verification__c,
+		( SELECT Location_Tag1__c FROM Tags__r )
 	FROM Service_Listing__c
 	WHERE Service_Listing_System_ID__c != null AND
 				Archive_Record__c = false 
@@ -419,6 +422,36 @@ async function archiveRecords(state) {
 // CRM records that need updating
 ////////////////////////////////////////////////////////
 
+// Helper function to detect and format picklist errors
+function handlePicklistError(error, context) {
+  try {
+    const errorData = JSON.parse(error.message.split(' — ')[1]);
+    const picklistErrors = errorData.filter(e => e.errorCode === 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST');
+    
+    if (picklistErrors.length > 0) {
+      const errorMessages = picklistErrors.map(e => {
+        const field = e.fields?.[0] || 'Unknown field';
+        const badValue = e.message.match(/bad value for restricted picklist field: (.+)/)?.[1] || 'unknown value';
+        return `Invalid value "${badValue}" for field ${field}`;
+      }).join('; ');
+      
+      return {
+        isPicklistError: true,
+        message: `${context}: ${errorMessages}`,
+        details: picklistErrors
+      };
+    }
+  } catch (parseError) {
+    // Not a picklist error or couldn't parse
+  }
+  
+  return {
+    isPicklistError: false,
+    message: error.message,
+    details: null
+  };
+}
+
 // Function to create a new tag record
 async function createTagRecord(serviceListingId, tagValue) {
   const response = await fetch(`${state.instanceUrl}/services/data/v63.0/sobjects/Tags__c`, {
@@ -435,8 +468,13 @@ async function createTagRecord(serviceListingId, tagValue) {
   });
 
   if (!response.ok) {
-    const errorDetails = await response.json().catch(() => ({}));
-    throw new Error(`Failed to create tag "${tagValue}" for ${serviceListingId}: ${response.status} ${response.statusText} — ${JSON.stringify(errorDetails)}`);
+    const errorDetails = await response.json().catch(() => []);
+    const picklistError = Array.isArray(errorDetails) && errorDetails.find(e => e.errorCode === 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST');
+    if (picklistError) {
+      const badValue = picklistError.message.match(/bad value for restricted picklist field: (.+)/)?.[1] || tagValue;
+      throw new Error(`PICKLIST_ERROR: Invalid location tag value "${badValue}" — add it to the CRM picklist or correct the listing.`);
+    }
+    throw new Error(`Failed to create tag "${tagValue}" for ${serviceListingId}: ${response.status} — ${JSON.stringify(errorDetails)}`);
   }
 }
 
@@ -740,25 +778,48 @@ async function syncTitles(state) {
 	
 	container = document.getElementById("update-records");
 	container.innerHTML = 'Syncing ...';
-	
+
+	try {
 	if (state.pendingUpdates.length) {
-		const theseUpdates = state.pendingUpdates.slice(0,NUMBER_OF_CHANGES);
-		await updateRecordsInBatches(theseUpdates,createTagRecord,deleteTagRecord,updateServiceListingRecord);
+		const theseUpdates = state.pendingUpdates.slice(0, NUMBER_TO_UPDATE);
+		const errors = await updateRecordsInBatches(theseUpdates,createTagRecord,deleteTagRecord,updateServiceListingRecord);
 		console.log(`Update complete for ${theseUpdates.length}`);
+		
+		if (errors.length > 0) {
+			// Display picklist errors
+			let errorHtml = '<div style="background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 10px 0;">';
+			errorHtml += '<h4 style="color: #856404; margin-top: 0;">⚠️ Invalid Picklist Values Detected</h4>';
+			errorHtml += '<p>The following records could not be fully updated because they contain location tag values that are not in the CRM picklist:</p>';
+			errorHtml += '<ul>';
+			errors.forEach(err => {
+				errorHtml += `<li><strong>${err.recordTitle}</strong> (${err.recordId}): ${err.error}</li>`;
+			});
+			errorHtml += '</ul>';
+			errorHtml += '<p><strong>Action Required:</strong> Either update the website listing to use valid location tags, or contact your Salesforce administrator to add these values to the Location Tag picklist.</p>';
+			errorHtml += '</div>';
+			
+			container.innerHTML = errorHtml + '<p>Other changes for this batch have been applied. Press the Review Changes button to get the next batch.</p>';
+		} else {
+			container.innerHTML = '<p>Those changes are now done. Press the Review Changes button, to get the next batch.</p>';
+		}
 	} else {
 		console.log("No updates needed");
+		container.innerHTML = '<p>No updates needed.</p>';
+	}
+	} catch (err) {
+		container.innerHTML = `<p><strong>❌ Failed.</strong> ${err.message}</p>`;
 	}
 
 	reviewBtn.disabled = false;
 	syncBtn.disabled = false;
-	
-	container.innerHTML = '<p>Those changes are now done. Press the Review Changes button, to get the next batch.<p>';
 }
 
 // update function that processes tag changes first
 async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord, updateServiceListingRecord) {
+  const errors = [];
+  
   for (const update of updates) {
-    const { id, locationTagsUpdate } = update;
+    const { id, title, locationTagsUpdate } = update;
 
     if (locationTagsUpdate) {
       const { current, desired } = locationTagsUpdate;
@@ -781,7 +842,19 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
       });
 
 			for (const tag of toAdd) {
-        await createTagRecord(id, tag);
+        try {
+          await createTagRecord(id, tag);
+        } catch (error) {
+          if (error.message.startsWith('PICKLIST_ERROR:')) {
+            errors.push({
+              recordTitle: title,
+              recordId: id,
+              error: error.message.replace('PICKLIST_ERROR: ', '')
+            });
+          } else {
+            throw error; // Re-throw non-picklist errors
+          }
+        }
       }
 
       for (const tag of toRemove) {
@@ -796,9 +869,195 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
   for (const update of fieldUpdates) {
     await updateServiceListingRecord(update.id, update.fieldsToUpdate);
   }
+  
+  // Return any picklist errors encountered
+  return errors;
 }
 
 
+////////////////////////////////////////////////////////
+// STEP FIVE
+// DATE FIELDS SYNCHRONIZATION
+////////////////////////////////////////////////////////
+
+// Find listings with date discrepancies
+function findDateDiscrepancies(sfRecords, combinedFiltered) {
+  const dateUpdates = [];
+
+  for (const item of combinedFiltered) {
+    if (!item.updatedOn) continue; // Skip if no website date
+
+    const sfRecord = sfRecords.find(
+      rec => rec.Service_Listing_System_ID__c === item.salesforceId
+    );
+
+    if (!sfRecord) continue; // No matching SF record
+
+    const websiteDate = new Date(parseInt(item.updatedOn, 10));
+    const crmDate = sfRecord.Date_Last_Updated_on_Website__c 
+      ? new Date(sfRecord.Date_Last_Updated_on_Website__c)
+      : new Date(0); // Default to epoch if no CRM date
+
+    // Compare only the date portion (year, month, day) - ignore time
+    const websiteDateOnly = new Date(websiteDate.getFullYear(), websiteDate.getMonth(), websiteDate.getDate());
+    const crmDateOnly = new Date(crmDate.getFullYear(), crmDate.getMonth(), crmDate.getDate());
+    const isSignificantDiff = websiteDateOnly.getTime() !== crmDateOnly.getTime();
+
+    if (isSignificantDiff) {
+      const isAnomaly = crmDate > websiteDate;
+      
+      const verificationDate = sfRecord.Date_of_most_recent_verification__c
+        ? new Date(sfRecord.Date_of_most_recent_verification__c)
+        : new Date(0);
+      
+      dateUpdates.push({
+        id: sfRecord.Id,
+        slId: sfRecord.Service_Listing_System_ID__c,
+        title: sfRecord.Service_Listing_Name__c,
+        fullUrl: item.fullUrl,
+        websiteDate: websiteDate,
+        crmDate: crmDate,
+        verificationDate: verificationDate,
+        updatedOn: item.updatedOn,
+        isAnomaly: isAnomaly
+      });
+    }
+  }
+
+  return dateUpdates;
+}
+
+// Review date changes - similar to reviewChanges for Step 4
+async function reviewDateChanges(state) {
+  try {
+    const reviewDatesBtn = document.getElementById('reviewDatesBtn');
+    const syncDatesBtn = document.getElementById('syncDatesBtn');
+    reviewDatesBtn.disabled = true;
+    syncDatesBtn.disabled = true;
+
+    const container = document.getElementById("date-updates");
+    container.innerHTML = 'Checking dates...';
+
+    // Get date discrepancies
+    state.pendingDateUpdates = findDateDiscrepancies(state.sfRecords, window.combinedFiltered);
+    console.log(`${state.pendingDateUpdates.length} date discrepancies found`);
+
+    // Render report
+    if (state.pendingDateUpdates.length === 0) {
+      container.innerHTML = "<p>All dates are synchronized.</p>";
+    } else {
+      const theseDateUpdates = state.pendingDateUpdates.slice(0, NUMBER_OF_CHANGES);
+      
+      // Separate anomalies and normal updates
+      const anomalies = theseDateUpdates.filter(u => u.isAnomaly);
+      const normal = theseDateUpdates.filter(u => !u.isAnomaly);
+      
+      let html = `
+        <p>Step 5: Synchronize website update dates with CRM records. Changes will be displayed 
+           ${NUMBER_OF_CHANGES} record${NUMBER_OF_CHANGES > 1 ? 's' : ''} at a time.</p>
+        <p>This batch of ${theseDateUpdates.length} CRM record${theseDateUpdates.length > 1 ? 's' : ''} that need${theseDateUpdates.length === 1 ? 's' : ''} date updates out of total of ${state.pendingDateUpdates.length}:</p>
+      `;
+      
+      if (anomalies.length > 0) {
+        html += '<h4>⚠️ Anomalies (CRM date is newer than website date):</h4><ol>';
+        anomalies.forEach(u => {
+          html += `
+            <li>
+              <strong><a href="${crmSlUrl(u.id)}" target="_blank">${u.title}</a></strong> (${u.slId})
+              <ul>
+                <li style="margin-left:1em"><strong>Date Last Updated on Website</strong>:
+                  <ul>
+                    <li>"${u.crmDate.toLocaleDateString()}" →</li>
+                    <li>"${u.websiteDate.toLocaleDateString()}"</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          `;
+        });
+        html += '</ol>';
+      }
+      
+      if (normal.length > 0) {
+        html += '<h4>📅 Out of Date (Website newer than CRM):</h4><ol>';
+        normal.forEach(u => {
+          html += `
+            <li>
+              <strong><a href="${crmSlUrl(u.id)}" target="_blank">${u.title}</a></strong> (${u.slId})
+              <ul>
+                <li style="margin-left:1em"><strong>Date Last Updated on Website</strong>:
+                  <ul>
+                    <li>"${u.crmDate.toLocaleDateString()}" →</li>
+                    <li>"${u.websiteDate.toLocaleDateString()}"</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          `;
+        });
+        html += '</ol>';
+      }
+      
+      container.innerHTML = html;
+      syncDatesBtn.disabled = false;
+    }
+
+    container.style.display = "block";
+  } catch (err) {
+    console.error("Failed to check date discrepancies:", err);
+    alert("Error while reviewing date changes. See console for details.");
+  }
+
+  reviewDatesBtn.disabled = false;
+  syncDatesBtn.disabled = false;
+}
+
+// Sync date changes to CRM - similar to syncTitles
+async function syncDates(state) {
+  const reviewDatesBtn = document.getElementById('reviewDatesBtn');
+  const syncDatesBtn = document.getElementById('syncDatesBtn');
+  reviewDatesBtn.disabled = true;
+  syncDatesBtn.disabled = true;
+  
+  const container = document.getElementById("date-updates");
+  container.innerHTML = 'Syncing dates...';
+  
+  if (state.pendingDateUpdates.length) {
+    const theseDateUpdates = state.pendingDateUpdates.slice(0, NUMBER_TO_UPDATE);
+    
+    try {
+      for (const update of theseDateUpdates) {
+        const updatedDate = new Date(parseInt(update.updatedOn, 10)).toISOString();
+        const fieldsToUpdate = {
+          Date_Last_Updated_on_Website__c: updatedDate
+        };
+        
+        // Only update verification date if it's older than the new website date
+        if (update.verificationDate < update.websiteDate) {
+          fieldsToUpdate.Date_of_most_recent_verification__c = updatedDate;
+        }
+        
+        await updateServiceListingRecord(update.id, fieldsToUpdate);
+      }
+      
+      console.log(`Date update complete for ${theseDateUpdates.length} records`);
+      
+      // Refresh Salesforce records after syncing
+      await fetchAllSFRecords();
+      
+    } catch (error) {
+      console.error('Error syncing dates:', error);
+      alert('Error syncing dates. Check console for details.');
+    }
+  } else {
+    console.log("No date updates needed");
+  }
+
+  reviewDatesBtn.disabled = false;
+  syncDatesBtn.disabled = false;
+  
+  container.innerHTML = '<p>Those date changes are now done. Press the Review Date Changes button to get the next batch.</p>';
+}
 ////////////////////////////////////////////////////////
 // MAIN ROUTINE
 // page loaded, check access token, 
@@ -811,14 +1070,22 @@ window.addEventListener('load', async () => {
 	// Check for the "test" query parameter
   const urlParams = new URLSearchParams(window.location.search);
   const isTestMode = urlParams.get('test') === 'true';
+  
+  // Check if we're in Squarespace edit mode (editing at ataloss.squarespace.com)
+  const isEditMode = window.location.hostname === 'ataloss.squarespace.com';
 
-  // Hide steps 2-4 initially
+  // Hide steps 2-5 initially (unless in edit mode)
   const stepTwoSection = document.getElementById("steptwo");
-  stepTwoSection.style.display = "none";
   const stepThreeSection = document.getElementById("stepthree");
-  stepThreeSection.style.display = "none";
   const stepFourSection = document.getElementById("stepfour");
-  stepFourSection.style.display = "none";
+  const stepFiveSection = document.getElementById("stepfive");
+  
+  if (!isEditMode) {
+    if (stepTwoSection) stepTwoSection.style.display = "none";
+    if (stepThreeSection) stepThreeSection.style.display = "none";
+    if (stepFourSection) stepFourSection.style.display = "none";
+    if (stepFiveSection) stepFiveSection.style.display = "none";
+  }
 
 	// get button elements
 	const loginBtn = document.getElementById('loginBtn');
@@ -870,6 +1137,10 @@ window.addEventListener('load', async () => {
 	reviewBtn.addEventListener('click', () => reviewChanges(state));
 	syncBtn.addEventListener('click', () => syncTitles(state));
 	archiveBtn.addEventListener('click', () => archiveRecords(state));
+	const reviewDatesBtn = document.getElementById('reviewDatesBtn');
+	const syncDatesBtn = document.getElementById('syncDatesBtn');
+	if (reviewDatesBtn) reviewDatesBtn.addEventListener('click', () => reviewDateChanges(state));
+	if (syncDatesBtn) syncDatesBtn.addEventListener('click', () => syncDates(state));
 
 	let stepOneDone = false;
 	let stepTwoDone = false;
@@ -915,7 +1186,17 @@ window.addEventListener('load', async () => {
 		// display section
 		stepFourSection.style.display = "flex";
 		
-		reviewChanges(state);
+		await reviewChanges(state);
+	}
+
+	// step five - show when step 4 has no pending updates
+	let stepFourDone = stepThreeDone && state.pendingUpdates.length === 0;
+	if (stepFourDone && state.accessToken) {
+		// display section
+		stepFiveSection.style.display = "flex";
+		
+		// Review date changes
+		await reviewDateChanges(state);
 	}
 
 });
