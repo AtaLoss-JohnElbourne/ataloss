@@ -271,33 +271,7 @@ window.addEventListener("load", function () {
 		logToPopup('⏳ Waiting for GitHub Pages to publish...');
 		const maxAttempts = 30;
 		const intervalMs = 10000;
-		const deploymentsUrl = `https://api.github.com/repos/${USERNAME}/${REPO}/pages/deployments`;
-		const headers = {
-			'Authorization': `Bearer ${githubToken}`,
-			'Accept': 'application/vnd.github+json'
-		};
-
-		for (let i = 0; i < maxAttempts; i++) {
-			await new Promise(r => setTimeout(r, intervalMs));
-			const res = await fetch(deploymentsUrl, { headers });
-			if (!res.ok) {
-				logToPopup(`⚠️ Pages deployment endpoint unavailable (${res.status}). Trying Actions workflow status...`);
-				await waitForPagesWorkflowPublish(githubToken, maxAttempts, intervalMs);
-				return;
-			}
-			const data = await res.json();
-			const latest = data.deployments?.[0];
-			if (!latest) continue;
-			logToPopup(`Pages deployment: ${latest.status} (attempt ${i + 1}/${maxAttempts})`);
-			if (latest.status === 'deployment_complete') {
-				logToPopup('✅ GitHub Pages published.');
-				return;
-			}
-			if (latest.status?.includes('error')) {
-				throw new Error('GitHub Pages deployment failed: ' + latest.status);
-			}
-		}
-		logToPopup('⚠️ Timed out waiting for GitHub Pages to publish.');
+		await waitForPagesWorkflowPublish(githubToken, maxAttempts, intervalMs);
 	}
 
 	async function waitForPagesWorkflowPublish(githubToken, maxAttempts = 30, intervalMs = 10000) {
