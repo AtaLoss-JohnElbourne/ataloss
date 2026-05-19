@@ -1,5 +1,4 @@
-<style>
-	@font-face {
+@font-face {
 		font-family: "PlusJakartaSans-Regular";
 		src: url("https://static1.squarespace.com/static/66abf4eda8c7fe56608c0cfe/t/6732708d6ee9d65a270d09e7/1733841741332/PlusJakartaSans-Regular.ttf");
 	}
@@ -127,6 +126,19 @@
 		padding-top: 10px;
 		padding-bottom: 10px;
 	}
+	#ataloss-whole-wrapper #submit-btn,
+	#ataloss-whole-wrapper #submit-btn.btn {
+		background-color: #4fafa8;
+		border-color: #4fafa8;
+		color: #ffffff;
+	}
+	#ataloss-whole-wrapper #submit-btn:hover,
+	#ataloss-whole-wrapper #submit-btn:focus,
+	#ataloss-whole-wrapper #submit-btn:active {
+		background-color: #3f9e97;
+		border-color: #3f9e97;
+		color: #ffffff;
+	}
     #ataloss-whole-wrapper #loading-screen {
       background-color: #f2efee;
       width: 100%;
@@ -228,8 +240,7 @@
 	}
 }
 
-</style>
-
-
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="/s/services-load.js"></script>
+.results-count {
+	font-size: 15px;
+	margin-bottom: 0px;
+}
