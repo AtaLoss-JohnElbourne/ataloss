@@ -1,4 +1,5 @@
 const LOGIN_URL = 'https://login.salesforce.com';
+const TOKEN_URL = 'https://ataloss.my.salesforce.com'; // My Domain required for browser CORS token exchange
 const NUMBER_OF_CHANGES = 10; // Number of changes to display
 const NUMBER_TO_UPDATE = 1; // Number of records to actually update (set to 10 when ready for production)
 const GITHUB_USERNAME = 'AtaLoss-JohnElbourne';
@@ -687,6 +688,106 @@ function missingSysids() {
 // oauth redirect, login and direct back
 ////////////////////////////////////////////////////////
 
+const OAUTH_CODE_VERIFIER_KEY = 'sf_oauth_code_verifier';
+const OAUTH_STATE_KEY = 'sf_oauth_state';
+// localStorage is used (not sessionStorage) because Squarespace redirects can clear sessionStorage
+const oauthStorage = window.localStorage;
+
+function base64UrlEncode(uint8Array) {
+  return btoa(String.fromCharCode(...uint8Array))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function generateRandomString(length = 64) {
+  // Note: ~ excluded intentionally - URLSearchParams encodes ~ as %7E which breaks PKCE verification on Salesforce
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._';
+  const randomValues = new Uint8Array(length);
+  window.crypto.getRandomValues(randomValues);
+  let result = '';
+  for (let i = 0; i < randomValues.length; i += 1) {
+    result += charset[randomValues[i] % charset.length];
+  }
+  return result;
+}
+
+async function generateCodeChallenge(codeVerifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(codeVerifier);
+  const digest = await window.crypto.subtle.digest('SHA-256', data);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function getOAuthError() {
+  const queryParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const error = queryParams.get('error') || hashParams.get('error');
+  const errorDescription = queryParams.get('error_description') || hashParams.get('error_description');
+  if (!error) {
+    return null;
+  }
+  return {
+    error,
+    errorDescription: errorDescription ? decodeURIComponent(errorDescription) : ''
+  };
+}
+
+async function handleOAuthCodeCallback() {
+  const queryParams = new URLSearchParams(window.location.search);
+  const authCode = queryParams.get('code');
+  if (!authCode) {
+    return false;
+  }
+
+  const expectedState = oauthStorage.getItem(OAUTH_STATE_KEY);
+  const callbackState = queryParams.get('state');
+  if (expectedState && callbackState !== expectedState) {
+    throw new Error('OAuth state validation failed');
+  }
+
+  const codeVerifier = oauthStorage.getItem(OAUTH_CODE_VERIFIER_KEY);
+  if (!codeVerifier) {
+    throw new Error('OAuth code verifier not found in storage');
+  }
+
+  const tokenUrl = `${TOKEN_URL}/services/oauth2/token`;
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: window.oauthConfig.clientId,
+    redirect_uri: window.oauthConfig.redirectUri,
+    code: authCode,
+    code_verifier: codeVerifier
+  });
+
+  const response = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString()
+  });
+
+  const tokenData = await response.json();
+  if (!response.ok) {
+    const description = tokenData.error_description || tokenData.error || 'Unknown token exchange error';
+    throw new Error(`OAuth token exchange failed: ${description}`);
+  }
+
+  state.accessToken = tokenData.access_token;
+  state.instanceUrl = tokenData.instance_url;
+
+  oauthStorage.removeItem(OAUTH_CODE_VERIFIER_KEY);
+  oauthStorage.removeItem(OAUTH_STATE_KEY);
+  queryParams.delete('code');
+  queryParams.delete('state');
+  const query = queryParams.toString();
+  const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, document.title, cleanUrl);
+
+  return true;
+}
+
 // Parse access token from the URL after login redirect
 function getTokenFromHash() {
 	const hash = window.location.hash.substring(1);
@@ -698,9 +799,15 @@ function getTokenFromHash() {
 }
 
 // Perform login redirect
-function loginWithSalesforce() {
-	const authUrl = `${LOGIN_URL}/services/oauth2/authorize?response_type=token&client_id=${window.oauthConfig.clientId}&redirect_uri=${encodeURIComponent(window.oauthConfig.redirectUri)}`;
-	window.location.href = authUrl;
+async function loginWithSalesforce() {
+  const codeVerifier = generateRandomString(96);
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+  const oauthState = generateRandomString(24);
+  oauthStorage.setItem(OAUTH_CODE_VERIFIER_KEY, codeVerifier);
+  oauthStorage.setItem(OAUTH_STATE_KEY, oauthState);
+
+  const authUrl = `${LOGIN_URL}/services/oauth2/authorize?response_type=code&client_id=${window.oauthConfig.clientId}&redirect_uri=${encodeURIComponent(window.oauthConfig.redirectUri)}&code_challenge=${encodeURIComponent(codeChallenge)}&code_challenge_method=S256&state=${encodeURIComponent(oauthState)}`;
+  window.location.href = authUrl;
 }
 
 
@@ -1676,9 +1783,31 @@ window.addEventListener('load', async () => {
 	const commitBtn = document.getElementById('commitGithubBtn');
 
 	const unknownSysIdsDiv = document.getElementById("unknown-sysids");
+  const oauthError = getOAuthError();
+  if (oauthError) {
+    console.error('Salesforce OAuth error:', oauthError.error, oauthError.errorDescription);
+    unknownSysIdsDiv.innerHTML = `<p style="color: red;"><strong>Salesforce OAuth error:</strong> ${oauthError.error}${oauthError.errorDescription ? ` — ${oauthError.errorDescription}` : ''}</p>`;
+    unknownSysIdsDiv.style.display = 'block';
+  }
+
+  try {
+    const didExchangeCode = await handleOAuthCodeCallback();
+    if (didExchangeCode) {
+      console.log('OAuth authorization code exchanged successfully');
+    }
+  } catch (error) {
+    console.error('Salesforce OAuth callback failed:', error);
+    unknownSysIdsDiv.innerHTML = `<p style="color: red;"><strong>Salesforce OAuth callback failed:</strong> ${error.message}</p>`;
+    unknownSysIdsDiv.style.display = 'block';
+    state.accessToken = null;
+    state.instanceUrl = null;
+  }
 
 	// Extract token from hash and validate it
-	if (window.location.hash.includes('access_token')) {
+  if (state.accessToken && state.instanceUrl) {
+    reviewBtn.disabled = false;
+    loginBtn.disabled = true;
+  } else if (window.location.hash.includes('access_token')) {
 		const tokenInfo = getTokenFromHash();
 		state.accessToken = tokenInfo.accessToken;
 		state.instanceUrl = tokenInfo.instanceUrl;
