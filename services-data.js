@@ -10927,52 +10927,6 @@ window.sectionData['national'] = [
     "body": "<div class=\"sqs-layout sqs-grid-12 columns-12\" data-layout-label=\"Post Body\" data-type=\"item\" id=\"item-67d1cbb61f66970dbfbb84db\"><div class=\"row sqs-row\"><div class=\"col sqs-col-12 span-12\"><div class=\"sqs-block website-component-block sqs-block-website-component sqs-block-html html-block\" data-block-css=\"[&quot;https://definitions.sqspcdn.com/website-component-definition/static-assets/website.components.html/a775c378-4b05-4d56-a311-b3384c6a8ee0_921/website.components.html.styles.css&quot;]\" data-block-scripts=\"[&quot;https://definitions.sqspcdn.com/website-component-definition/static-assets/website.components.html/a775c378-4b05-4d56-a311-b3384c6a8ee0_921/website.components.html.visitor.js&quot;]\" data-block-type=\"1337\" data-definition-name=\"website.components.html\" data-sqsp-block=\"text\" data-website-component-id=\"67d1cbb61f66970dbfbb84dc\" id=\"block-67d1cbb61f66970dbfbb84dc\"><div class=\"sqs-block-content\"><div class=\"sqs-text-block-container\">\n  \n  <div class=\"sqs-html-content\" data-sqsp-text-block-content=\"\"><p class=\"\" style=\"white-space:pre-wrap;\">Every story is as unique as the precious child they have lost. Reuben's Retreat offer both practical and emotional support and promise to walk side by side with a family on their journey. This includes delivering a bespoke and tailor-made support package for each family and guidance to help them navigate their grief.</p><p class=\"\" style=\"white-space:pre-wrap;\">Some examples of the services provided:</p><p class=\"\" data-rte-preserve-empty=\"true\" style=\"white-space:pre-wrap;\"></p><ul data-rte-list=\"default\"><li><p class=\"\" style=\"white-space:pre-wrap;\">Peer support groups (including virtual/online groups)</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Counselling and holistic therapies</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Wellbeing support</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Practical advice</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Memory making activities</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Short UK &amp; in-house breaks</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Outdoor therapies</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\">Gifted spaces (hydrotherapy pool, movie &amp; play room)</p></li></ul><p class=\"\" style=\"white-space:pre-wrap;\">Official Website: <a href=\"https://www.reubensretreat.org/family-support/bereavement-support/what-we-offer/\" target=\"_blank\">Reuben’s Retreat (Child Loss Charity)</a></p><p class=\"\" style=\"white-space:pre-wrap;\"><strong>CONTACT:</strong></p><p class=\"\" style=\"white-space:pre-wrap;\">Email: <a href=\"mailto:support@reubensretreat.org\">support@reubensretreat.org</a></p><p class=\"\" style=\"white-space:pre-wrap;\">Telephone: <a href=\"tel:01457680023\" target=\"_blank\">01457 680 023</a></p><p class=\"\" style=\"white-space:pre-wrap;\">Reuben’s Retreat, </p><p class=\"\" style=\"white-space:pre-wrap;\">Park Crescent, </p><p class=\"\" style=\"white-space:pre-wrap;\">Glossop, </p><p class=\"\" style=\"white-space:pre-wrap;\">SK13 7BQ</p></div>\n\n\n  \n<style id=\"container-styles\">#block-67d1cbb61f66970dbfbb84dc {\n    \n    --stroke-style: none;--stroke-thickness: 6px;\n    \n      \n      \n      \n    \n\n\n\n  }\n\n  #block-67d1cbb61f66970dbfbb84dc .sqs-html-content {\n    \n    --tweak-text-block-padding: 6% 6% 6% 6%;\n  --tweak-text-block-padding: initial;\n}\n\n  #block-67d1cbb61f66970dbfbb84dc {\n      mix-blend-mode: var(--tweak-text-block-blend\n  );\n      border-radius: var(--tweak-text-block-radius);\n  }\n\n  \n  \n#block-67d1cbb61f66970dbfbb84dc {\n      --tweak-text-block-radius: 0px 0px 0px 0px;\n    }\n\n\n  \n  \n\n  #block-67d1cbb61f66970dbfbb84dc {\n    }\n\n</style>\n\n<style id=\"override-container-styles\">\n    @media screen and (max-width: 767px) {\n          \n            \n\n#block-67d1cbb61f66970dbfbb84dc {\n            \n            }\n        }\n    \n  \n    @media screen and (max-width: 767px) {\n          #block-67d1cbb61f66970dbfbb84dc .sqs-html-content {\n            \n            }\n        }\n    \n  @media screen and (max-width: 767px) {\n          \n          \n\n          \n          \n          \n        }</style>\n<style class=\"transform-overrides-vars\">\n  \n</style>\n\n\n\n\n</div>\n</div></div></div></div></div>"
   },
   {
-    "id": "67d1cbb81f66970dbfbb85a8",
-    "fullUrl": "https://www.ataloss.org/more-info/bereavement-services/road-peace",
-    "title": "RoadPeace",
-    "excerpt": "<p>RoadPeace helps bereaved families by providing peer support and connecting victims with others similarly affected whilst providing ways to cope with the aftermath a road death.</p>\n",
-    "featured": false,
-    "publishOn": 1626520200050,
-    "updatedOn": 1785329014806,
-    "catWho": [
-      "Friend/colleague",
-      "Sibling",
-      "Grandparent",
-      "Parent",
-      "Child",
-      "Adult child",
-      "Grandchild",
-      "Relative",
-      "Spouse/partner",
-      "Baby",
-      "Other significant person"
-    ],
-    "catCDeath": [
-      "Accident"
-    ],
-    "catAgePerson": [
-      "50-65",
-      "Young people (11-18)",
-      "65+",
-      "30-50",
-      "18-30",
-      "Children up to 11"
-    ],
-    "catLocation": [
-      "West Midlands",
-      "Merseyside",
-      "Bristol",
-      "NATIONAL ORGANISATIONS"
-    ],
-    "catType": [
-      "Specialist Services",
-      "Helplines",
-      "Peer Support"
-    ],
-    "salesforceId": "a01J5000002ixDn",
-    "body": "<div class=\"sqs-layout sqs-grid-12 columns-12\" data-layout-label=\"Post Body\" data-type=\"item\" id=\"item-67d1cbb81f66970dbfbb85a8\"><div class=\"row sqs-row\"><div class=\"col sqs-col-12 span-12\"><div class=\"sqs-block website-component-block sqs-block-website-component sqs-block-html html-block\" data-block-css=\"[&quot;https://definitions.sqspcdn.com/website-component-definition/static-assets/website.components.html/a775c378-4b05-4d56-a311-b3384c6a8ee0_921/website.components.html.styles.css&quot;]\" data-block-scripts=\"[&quot;https://definitions.sqspcdn.com/website-component-definition/static-assets/website.components.html/a775c378-4b05-4d56-a311-b3384c6a8ee0_921/website.components.html.visitor.js&quot;]\" data-block-type=\"1337\" data-definition-name=\"website.components.html\" data-sqsp-block=\"text\" data-website-component-id=\"67d1cbb81f66970dbfbb85a9\" id=\"block-67d1cbb81f66970dbfbb85a9\"><div class=\"sqs-block-content\"><div class=\"sqs-text-block-container\">\n  \n  <div class=\"sqs-html-content\" data-sqsp-text-block-content=\"\"><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">RoadPeace are the National Charity for Road Crash Victims.</p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">RoadPeace help the bereaved and seriously injured by providing peer support and connecting victims with others similarly affected whilst providing ways to cope with the aftermath a road death and injury.</p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">They offer support through:</p><ul data-rte-list=\"default\"><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">A helpline telephone service</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Befriending</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Trauma support programme for families affected by a road death</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Local groups </p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Bereaved Parent and Sibling groups</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Injured group</p></li><li><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Legal Panel</p></li></ul><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Official Website: <a target=\"_blank\" href=\"https://www.roadpeace.org/support/emotional-support/\">RoadPeace (Road Crash Victims Charity)</a></p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\"><strong>CONTACT:</strong></p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\"><strong>Helpline</strong><a target=\"_blank\" href=\"tel:08001601069\">0800 160 1069</a> Opening hours: 10am-4pm, Monday to Friday.</p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\">Email: <a href=\"mailto:info@roadpeace.org\"><u>info@roadpeace.org</u></a></p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\"></p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\"></p><p class=\"\" style=\"white-space:pre-wrap;\" data-rte-preserve-empty=\"true\"></p></div>\n\n\n  \n<style id=\"container-styles\">#block-67d1cbb81f66970dbfbb85a9 {\n    \n    --stroke-style: none;--stroke-thickness: 6px;\n    \n      \n      \n      \n    \n\n\n\n  }\n\n  #block-67d1cbb81f66970dbfbb85a9 .sqs-html-content {\n    \n    --tweak-text-block-padding: 6% 6% 6% 6%;\n  --tweak-text-block-padding: initial;\n}\n\n  #block-67d1cbb81f66970dbfbb85a9 {\n      mix-blend-mode: var(--tweak-text-block-blend\n  );\n      border-radius: var(--tweak-text-block-radius);\n  }\n\n  \n  \n#block-67d1cbb81f66970dbfbb85a9 {\n      --tweak-text-block-radius: 0px 0px 0px 0px;\n    }\n\n\n  \n  \n\n  #block-67d1cbb81f66970dbfbb85a9 {\n    }\n\n</style>\n\n<style id=\"override-container-styles\">\n    @media screen and (max-width: 767px) {\n          \n            \n\n#block-67d1cbb81f66970dbfbb85a9 {\n            \n            }\n        }\n    \n  \n    @media screen and (max-width: 767px) {\n          #block-67d1cbb81f66970dbfbb85a9 .sqs-html-content {\n            \n            }\n        }\n    \n  @media screen and (max-width: 767px) {\n          \n          \n\n          \n          \n          \n        }</style>\n<style class=\"transform-overrides-vars\">\n  \n</style>\n\n\n\n\n</div>\n</div></div></div></div></div>"
-  },
-  {
     "id": "67d1cbbb1f66970dbfbb85ed",
     "fullUrl": "https://www.ataloss.org/more-info/bereavement-services/royal-voluntary-service-health-services-for-the-elderly",
     "title": "Royal Voluntary Service (Health Services for the Elderly)",
