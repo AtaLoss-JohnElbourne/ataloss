@@ -36,7 +36,7 @@ const state = {
 const runtimeConfig = {
   githubCommitMessage: '',
   refreshDataGuidance: '',
-  stepFiveIgnoreBeforeDate: ''
+  stepFiveIgnoreBeforeDate: '2026-01-01'
 };
 
 function applySquarespaceRuntimeConfig() {
@@ -56,7 +56,7 @@ function applySquarespaceRuntimeConfig() {
   runtimeConfig.stepFiveIgnoreBeforeDate =
     sqspConfig.stepFiveIgnoreBeforeDate ||
     stepFive?.dataset?.stepFiveIgnoreBeforeDate ||
-    '';
+    runtimeConfig.stepFiveIgnoreBeforeDate;
 }
 
 // Delete 'featured' array to free memory
@@ -1296,7 +1296,7 @@ const container = document.getElementById("update-records");
       state.stepFourDone = false;
 			const theseUpdates = state.pendingUpdates.slice(0, NUMBER_OF_CHANGES);
 			container.innerHTML = 				`
-				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
+				 <p>The fourth step, now that we've made sure there is a one-to-one mapping of live
 						articles with unarchived CRM Service Listing records, is to reflect the latest values on 
 						the listings, to the CRM records. Changes will be displayed below ${NUMBER_OF_CHANGES} 
 						records at a time and then you can sync them to the CRM, by pressing the Sync Batch to CRM
