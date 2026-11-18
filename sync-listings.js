@@ -35,7 +35,8 @@ const state = {
 
 const runtimeConfig = {
   githubCommitMessage: '',
-  refreshDataGuidance: ''
+  refreshDataGuidance: '',
+  stepFiveIgnoreBeforeDate: ''
 };
 
 function applySquarespaceRuntimeConfig() {
@@ -50,6 +51,11 @@ function applySquarespaceRuntimeConfig() {
   runtimeConfig.refreshDataGuidance =
     sqspConfig.refreshDataGuidance ||
     stepFive?.dataset?.refreshDataGuidance ||
+    '';
+
+  runtimeConfig.stepFiveIgnoreBeforeDate =
+    sqspConfig.stepFiveIgnoreBeforeDate ||
+    stepFive?.dataset?.stepFiveIgnoreBeforeDate ||
     '';
 }
 
@@ -690,6 +696,7 @@ function missingSysids() {
 
 const OAUTH_CODE_VERIFIER_KEY = 'sf_oauth_code_verifier';
 const OAUTH_STATE_KEY = 'sf_oauth_state';
+const STEP_FIVE_IGNORE_BEFORE_DATE_KEY = 'sf_step5_ignore_before_date';
 // localStorage is used (not sessionStorage) because Squarespace redirects can clear sessionStorage
 const oauthStorage = window.localStorage;
 
@@ -798,8 +805,25 @@ function getTokenFromHash() {
 	};
 }
 
+function persistStepFiveCutoffFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlOverride = urlParams.get('step5IgnoreBeforeDate');
+  if (urlOverride === null) {
+    return;
+  }
+
+  const trimmed = urlOverride.trim();
+  if (trimmed) {
+    oauthStorage.setItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY, trimmed);
+  } else {
+    oauthStorage.removeItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY);
+  }
+}
+
 // Perform login redirect
 async function loginWithSalesforce() {
+  persistStepFiveCutoffFromUrl();
+
   const codeVerifier = generateRandomString(96);
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   const oauthState = generateRandomString(24);
@@ -1493,9 +1517,127 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
 // DATE FIELDS SYNCHRONIZATION
 ////////////////////////////////////////////////////////
 
+function formatDateForCsv(dateValue) {
+  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+    return '';
+  }
+  return dateValue.toISOString().split('T')[0];
+}
+
+function escapeCsvValue(value) {
+  const str = String(value ?? '');
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function downloadDateDifferencesCsv(dateUpdates) {
+  if (!Array.isArray(dateUpdates) || dateUpdates.length === 0) {
+    alert('No date differences to export.');
+    return;
+  }
+
+  const header = [
+    'Service Listing Name',
+    'CRM Record URL',
+    'CRM Date Last Updated on Website',
+    'Squarespace Updated Date'
+  ];
+
+  const rows = dateUpdates
+    .slice()
+    .sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }))
+    .map((update) => [
+      update.title || '',
+      crmSlUrl(update.id),
+      formatDateForCsv(update.crmDate),
+      formatDateForCsv(update.websiteDate)
+    ]);
+
+  const csvContent = [header, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(','))
+    .join('\n');
+
+  const now = new Date();
+  const timestamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')
+  ].join('') + '-' + [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0')
+  ].join('');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `stage5-date-differences-${timestamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function parseDateOnlyInput(dateValue) {
+  if (!dateValue || typeof dateValue !== 'string') {
+    return null;
+  }
+  const trimmed = dateValue.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, monthIndex, day);
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getStepFiveIgnoreBeforeDate() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlOverride = urlParams.get('step5IgnoreBeforeDate');
+  const storedOverride = oauthStorage.getItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY);
+  const configuredValue = (urlOverride || storedOverride || runtimeConfig.stepFiveIgnoreBeforeDate || '').trim();
+  const parsedDate = parseDateOnlyInput(configuredValue);
+
+  if (!configuredValue || parsedDate) {
+    return {
+      value: configuredValue,
+      date: parsedDate,
+      invalid: false,
+      source: urlOverride ? 'url' : storedOverride ? 'storage' : 'config'
+    };
+  }
+
+  return {
+    value: configuredValue,
+    date: null,
+    invalid: true,
+    source: urlOverride ? 'url' : storedOverride ? 'storage' : 'config'
+  };
+}
+
 // Find listings with date discrepancies
 function findDateDiscrepancies(sfRecords, combinedFiltered) {
   const dateUpdates = [];
+  let ignoredByCutoff = 0;
+  const cutoffInfo = getStepFiveIgnoreBeforeDate();
+  const minimumWebsiteDate = cutoffInfo.date;
 
   for (const item of combinedFiltered) {
     if (!item.updatedOn) continue; // Skip if no website date
@@ -1507,6 +1649,11 @@ function findDateDiscrepancies(sfRecords, combinedFiltered) {
     if (!sfRecord) continue; // No matching SF record
 
     const websiteDate = new Date(parseInt(item.updatedOn, 10));
+    if (minimumWebsiteDate && websiteDate < minimumWebsiteDate) {
+      ignoredByCutoff += 1;
+      continue;
+    }
+
     const crmDate = sfRecord.Date_Last_Updated_on_Website__c 
       ? new Date(sfRecord.Date_Last_Updated_on_Website__c)
       : new Date(0); // Default to epoch if no CRM date
@@ -1537,7 +1684,11 @@ function findDateDiscrepancies(sfRecords, combinedFiltered) {
     }
   }
 
-  return dateUpdates;
+  return {
+    dateUpdates,
+    ignoredByCutoff,
+    cutoffInfo
+  };
 }
 
 // Review date changes - similar to reviewChanges for Step 4
@@ -1554,12 +1705,19 @@ async function reviewDateChanges(state) {
     container.innerHTML = 'Checking dates...';
 
     // Get date discrepancies
-    state.pendingDateUpdates = findDateDiscrepancies(state.sfRecords, window.combinedFiltered);
+    const dateDiscrepancyResult = findDateDiscrepancies(state.sfRecords, window.combinedFiltered);
+    state.pendingDateUpdates = dateDiscrepancyResult.dateUpdates;
     console.log(`${state.pendingDateUpdates.length} date discrepancies found`);
 
     // Render report
     if (state.pendingDateUpdates.length === 0) {
-      container.innerHTML = "<p>All dates are synchronized.</p>";
+      let html = '<p>All dates are synchronized.</p>';
+      if (dateDiscrepancyResult.cutoffInfo.date) {
+        html += `<p>Stage 5 filter: ignoring listings with Squarespace updated date before <strong>${dateDiscrepancyResult.cutoffInfo.value}</strong> (${dateDiscrepancyResult.ignoredByCutoff} listing${dateDiscrepancyResult.ignoredByCutoff === 1 ? '' : 's'} ignored).</p>`;
+      } else if (dateDiscrepancyResult.cutoffInfo.invalid) {
+        html += `<p style="color: #b42318;">Stage 5 filter ignored due to invalid date format: "${dateDiscrepancyResult.cutoffInfo.value}". Use YYYY-MM-DD.</p>`;
+      }
+      container.innerHTML = html;
 			state.stepFiveDone = true;
     } else {
 			state.stepFiveDone = false;
@@ -1570,10 +1728,17 @@ async function reviewDateChanges(state) {
       const normal = theseDateUpdates.filter(u => !u.isAnomaly);
       
       let html = `
+        <p><button id="downloadDateDiffCsvBtn" type="button">Download date differences as CSV</button></p>
         <p>Step 5: Synchronize website update dates with CRM records. Changes will be displayed 
            ${NUMBER_OF_CHANGES} record${NUMBER_OF_CHANGES > 1 ? 's' : ''} at a time.</p>
         <p>This batch of ${theseDateUpdates.length} CRM record${theseDateUpdates.length > 1 ? 's' : ''} that need${theseDateUpdates.length === 1 ? 's' : ''} date updates out of total of ${state.pendingDateUpdates.length}:</p>
       `;
+
+      if (dateDiscrepancyResult.cutoffInfo.date) {
+        html += `<p>Stage 5 filter: ignoring listings with Squarespace updated date before <strong>${dateDiscrepancyResult.cutoffInfo.value}</strong> (${dateDiscrepancyResult.ignoredByCutoff} listing${dateDiscrepancyResult.ignoredByCutoff === 1 ? '' : 's'} ignored).</p>`;
+      } else if (dateDiscrepancyResult.cutoffInfo.invalid) {
+        html += `<p style="color: #b42318;">Stage 5 filter ignored due to invalid date format: "${dateDiscrepancyResult.cutoffInfo.value}". Use YYYY-MM-DD.</p>`;
+      }
       
       if (anomalies.length > 0) {
         html += '<h4>⚠️ Anomalies (CRM date is newer than website date):</h4><ol>';
@@ -1616,6 +1781,10 @@ async function reviewDateChanges(state) {
       }
       
       container.innerHTML = html;
+      const downloadCsvBtn = document.getElementById('downloadDateDiffCsvBtn');
+      if (downloadCsvBtn) {
+        downloadCsvBtn.addEventListener('click', () => downloadDateDifferencesCsv(state.pendingDateUpdates));
+      }
       syncDatesBtn.disabled = false;
     }
 
@@ -1773,6 +1942,7 @@ window.addEventListener('load', async () => {
 	pageContext.isAtalossDomain = window.location.hostname === 'www.ataloss.org';
 	ensureDataActionsUi();
   applySquarespaceRuntimeConfig();
+  persistStepFiveCutoffFromUrl();
 
 	// get button elements
 	const loginBtn = document.getElementById('loginBtn');
