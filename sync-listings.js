@@ -1,7 +1,7 @@
 const LOGIN_URL = 'https://login.salesforce.com';
 const TOKEN_URL = 'https://ataloss.my.salesforce.com'; // My Domain required for browser CORS token exchange
 const NUMBER_OF_CHANGES = 10; // Number of changes to display
-const NUMBER_TO_UPDATE = 1; // Number of records to actually update (set to 10 when ready for production)
+const NUMBER_TO_UPDATE = 10; // Maximum number of records to update per batch
 const GITHUB_USERNAME = 'AtaLoss-JohnElbourne';
 const GITHUB_REPO = 'ataloss';
 const GITHUB_BRANCH = 'main';
@@ -1156,8 +1156,10 @@ function getMismatchedArticles(sfRecords, combinedFiltered) {
     let needsUpdate = false;
 
     // Compare simple text fields
-    if (sfRecord.Service_Listing_Name__c !== item.title) {
-      fieldsToUpdate.Service_Listing_Name__c = item.title;
+    const currentTitle = (sfRecord.Service_Listing_Name__c ?? '').trim();
+    const desiredTitle = (item.title ?? '').trim();
+    if (currentTitle !== desiredTitle) {
+      fieldsToUpdate.Service_Listing_Name__c = desiredTitle;
       originalValues.Service_Listing_Name__c = sfRecord.Service_Listing_Name__c;
       needsUpdate = true;
     }
