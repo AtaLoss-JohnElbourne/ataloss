@@ -2,8 +2,18 @@ const LOGIN_URL = 'https://login.salesforce.com';
 const TOKEN_URL = 'https://ataloss.my.salesforce.com'; // My Domain required for browser CORS token exchange
 const NUMBER_OF_CHANGES = 10; // Number of changes to display
 const NUMBER_TO_UPDATE = 1; // Number of records to actually update (set to 10 when ready for production)
+const GITHUB_USERNAME = 'AtaLoss-JohnElbourne';
+const GITHUB_REPO = 'ataloss';
+const GITHUB_BRANCH = 'main';
+const GITHUB_FILE_PATH = window.servicesDataFileName || 'services-data.js';
 const crmSlUrl = (id) =>
 		`https://ataloss.lightning.force.com/lightning/r/Service_Listing__c/${id}/view`;
+
+const pageContext = {
+  isTestMode: false,
+  isEditMode: false,
+  isAtalossDomain: false
+};
 
 const state = {
   accessToken: null,
@@ -11,11 +21,502 @@ const state = {
   pendingUpdates: [],
   sfRecords: null,
   pendingArchive: [],
-  pendingDateUpdates: []
+  pendingDateUpdates: [],
+  hasGatheredData: false,
+  dataSource: 'github-cache',
+  gatheredContent: null,
+  gatheredAt: null,
+  stepOneDone: false,
+  stepTwoDone: false,
+  stepThreeDone: false,
+  stepFourDone: false,
+  stepFiveDone: false
 };
 
+const runtimeConfig = {
+  githubCommitMessage: '',
+  refreshDataGuidance: '',
+  stepFiveIgnoreBeforeDate: ''
+};
+
+function applySquarespaceRuntimeConfig() {
+  const sqspConfig = window.syncListingsConfig || {};
+  const stepFive = document.getElementById('stepfive');
+
+  runtimeConfig.githubCommitMessage =
+    sqspConfig.githubCommitMessage ||
+    stepFive?.dataset?.githubCommitMessage ||
+    '';
+
+  runtimeConfig.refreshDataGuidance =
+    sqspConfig.refreshDataGuidance ||
+    stepFive?.dataset?.refreshDataGuidance ||
+    '';
+
+  runtimeConfig.stepFiveIgnoreBeforeDate =
+    sqspConfig.stepFiveIgnoreBeforeDate ||
+    stepFive?.dataset?.stepFiveIgnoreBeforeDate ||
+    '';
+}
+
 // Delete 'featured' array to free memory
-delete window.sectionData['featured'];
+if (window.sectionData && window.sectionData['featured']) {
+  delete window.sectionData['featured'];
+}
+
+function extractedData(delimiter, dataArrays = []) {
+  const combinedData = [];
+  dataArrays.forEach((data) => {
+    if (data.includes(delimiter) && data.split(delimiter)[1].trim() !== '') {
+      combinedData.push(data.split(delimiter)[1].trim());
+    }
+  });
+  return [...new Set(combinedData)];
+}
+
+function extractSalesforceIdAndCleanBody(body = '') {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(body, 'text/html');
+  let salesforceId = null;
+
+  doc.querySelectorAll('p').forEach((p) => {
+    const match = p.textContent.trim().match(/^\[(\w{15})\]$/);
+    if (match) {
+      salesforceId = match[1];
+      p.remove();
+    }
+  });
+
+  return {
+    salesforceId,
+    cleanedBody: doc.body.innerHTML.trim()
+  };
+}
+
+function buildServicesDataModel(servicesData, logFn = () => {}) {
+  let wholeCategories = {};
+  let catWho = [], whoCat = [], catCDeath = [], cDeathCat = [], catAgePerson = [], agePersonCat = [], catLocation = [], locationCat = [], catType = [], typeCat = [];
+  let featuredData = [], nationalData = [], regionalData = [];
+
+  servicesData.forEach((item) => {
+    catWho = extractedData('Who:', item.categories || []);
+    catCDeath = extractedData('Cir:', item.categories || []);
+    catAgePerson = extractedData('Age:', item.categories || []);
+    catLocation = extractedData('Location:', item.categories || []);
+    catType = extractedData('Type:', item.categories || []);
+    const { salesforceId, cleanedBody } = extractSalesforceIdAndCleanBody(item.body);
+    const requiredData = [{
+      id: item.id,
+      fullUrl: item.fullUrl,
+      title: item.title,
+      excerpt: item.excerpt,
+      featured: item.starred,
+      publishOn: item.publishOn,
+      updatedOn: item.updatedOn,
+      catWho: catWho,
+      catCDeath: catCDeath,
+      catAgePerson: catAgePerson,
+      catLocation: catLocation,
+      catType: catType,
+      salesforceId,
+      body: cleanedBody
+    }];
+
+    whoCat = [...new Set([...whoCat, ...catWho])];
+    cDeathCat = [...new Set([...cDeathCat, ...catCDeath])];
+    agePersonCat = [...new Set([...agePersonCat, ...catAgePerson])];
+    locationCat = [...new Set([...locationCat, ...catLocation])];
+    typeCat = [...new Set([...typeCat, ...catType])];
+
+    if (item.starred) featuredData.push(...requiredData);
+    if (catLocation.includes('NATIONAL ORGANISATIONS')) {
+      nationalData.push(...requiredData);
+    } else {
+      regionalData.push(...requiredData);
+    }
+  });
+
+  wholeCategories = {
+    catWho: whoCat.sort(),
+    catCDeath: cDeathCat.sort(),
+    catAgePerson: agePersonCat.sort(),
+    catLocation: locationCat.sort(),
+    catType: typeCat.sort(),
+  };
+
+  featuredData.sort((a, b) => a.title.localeCompare(b.title));
+  nationalData.sort((a, b) => a.title.localeCompare(b.title));
+  regionalData.sort((a, b) => a.title.localeCompare(b.title));
+
+  logFn('Featured Services: ' + featuredData.length);
+  logFn('Regional Services: ' + regionalData.length);
+  logFn('National Services: ' + nationalData.length);
+  logFn('Total Services: ' + (regionalData.length + nationalData.length));
+
+  if (featuredData.length < 10 || regionalData.length < 1300 || nationalData.length < 150) {
+    throw new Error('Error retrieving services - the counts are too low');
+  }
+
+  const sectionData = [];
+  sectionData['featured'] = featuredData;
+  sectionData['national'] = nationalData;
+  sectionData['regional'] = regionalData;
+
+  return {
+    wholeCategories,
+    sectionData
+  };
+}
+
+function serialiseServicesDataModel(model) {
+  let content = '// Auto generated file with services data for the sevices search tool at\n';
+  content += '// https://ataloss.squarespace.com/bereavement-services\n\n';
+  content += `window.wholeCategories = ${JSON.stringify(model.wholeCategories, null, 2)};\n\n`;
+  content += 'window.sectionData = [];\n\n';
+  content += `window.sectionData['featured'] = ${JSON.stringify(model.sectionData['featured'], null, 2)};\n\n`;
+  content += `window.sectionData['national'] = ${JSON.stringify(model.sectionData['national'], null, 2)};\n\n`;
+  content += `window.sectionData['regional'] = ${JSON.stringify(model.sectionData['regional'], null, 2)};\n\n`;
+  return content;
+}
+
+function applyServicesDataModel(model) {
+  window.wholeCategories = model.wholeCategories;
+  window.sectionData = [];
+  window.sectionData['featured'] = model.sectionData['featured'];
+  window.sectionData['national'] = model.sectionData['national'];
+  window.sectionData['regional'] = model.sectionData['regional'];
+  state.gatheredContent = serialiseServicesDataModel(model);
+  state.gatheredAt = new Date().toISOString();
+  state.hasGatheredData = true;
+  state.dataSource = 'gathered-live';
+}
+
+function getDataActionElements() {
+  return {
+    gatherBtn: document.getElementById('gatherDataBtn'),
+    commitBtn: document.getElementById('commitGithubBtn'),
+    patInput: document.getElementById('githubPatInput'),
+    status: document.getElementById('dataActionStatus'),
+    log: document.getElementById('dataActionLog')
+  };
+}
+
+function appendActionLog(message) {
+  const { log } = getDataActionElements();
+  if (!log) {
+    console.log('[sync-data]', message);
+    return;
+  }
+  log.style.display = 'block';
+  const p = document.createElement('p');
+  p.style.margin = '0 0 8px';
+  p.textContent = message;
+  log.appendChild(p);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearActionLog() {
+  const { log } = getDataActionElements();
+  if (!log) return;
+  log.innerHTML = '';
+  log.style.display = 'none';
+}
+
+function setActionStatus(message, tone = 'info') {
+  const { status } = getDataActionElements();
+  if (!status) return;
+  status.textContent = message;
+  status.style.color = tone === 'error'
+    ? '#b42318'
+    : tone === 'success'
+      ? '#027a48'
+      : '#344054';
+}
+
+function updateCommitButtonState() {
+  const { commitBtn } = getDataActionElements();
+  const canCommit = Boolean(
+    state.hasGatheredData &&
+    state.gatheredContent &&
+    state.accessToken &&
+    state.stepOneDone &&
+    state.stepTwoDone &&
+    state.stepThreeDone &&
+    state.stepFourDone &&
+    state.stepFiveDone
+  );
+  if (commitBtn) {
+    commitBtn.disabled = !canCommit;
+  }
+
+  if (!state.hasGatheredData) {
+    setActionStatus('Using the GitHub cache currently loaded with the page. Press Gather current data to refresh from Squarespace before syncing.');
+    return;
+  }
+
+  if (canCommit) {
+    setActionStatus('No remaining sync changes were found for the gathered data. You can now commit that gathered data to GitHub.', 'success');
+    return;
+  }
+
+  setActionStatus('Using gathered in-memory website data. If you edit any blog entries, press Gather current data again before continuing.');
+}
+
+function ensureDataActionsUi() {
+  const requiredIds = [
+    'gatherDataBtn',
+    'commitGithubBtn',
+    'githubPatInput',
+    'dataActionStatus',
+    'dataActionLog'
+  ];
+  const missingIds = requiredIds.filter((id) => !document.getElementById(id));
+  if (missingIds.length > 0) {
+    console.warn(
+      '[sync-listings] Data action UI is expected from Squarespace markup. Missing IDs:',
+      missingIds.join(', ')
+    );
+  }
+}
+
+async function fetchLatestServicesData(logFn = () => {}) {
+  logFn('Fetching Service Listings Blog Entries - paginated');
+  const format = 'format=json-pretty';
+  const jsonPath = window.location.origin + '/more-info/bereavement-services?offset=';
+  const accumulatedData = [];
+  let page = 0;
+  let baseUrl = '';
+  let offset = 9999999999999;
+  const seenIds = new Set();
+
+  while (true) {
+    page += 1;
+    const url = jsonPath + offset + '&' + format;
+    logFn(`Fetching page ${page}, services so far: ${accumulatedData.length}`);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (page === 1) {
+      baseUrl = data.website.baseUrl;
+    }
+    if (data.items && data.items.length > 0) {
+      for (const item of data.items) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          item.fullUrl = baseUrl + item.fullUrl;
+          accumulatedData.push(item);
+        }
+      }
+    }
+    if (data.pagination && data.pagination.nextPageOffset) {
+      offset = data.pagination.nextPageOffset + 1;
+    } else {
+      break;
+    }
+  }
+
+  logFn('Finished loading service listings: ' + accumulatedData.length);
+  return accumulatedData;
+}
+
+async function getGitHubSha(githubToken) {
+  const url = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}?ref=${GITHUB_BRANCH}`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${githubToken}`,
+      'Accept': 'application/vnd.github+json'
+    }
+  });
+  if (!res.ok) {
+    throw new Error('Wrong GitHub token');
+  }
+  const data = await res.json();
+  return data.sha;
+}
+
+async function updateGitHub(githubToken, base64Content, commitMessage) {
+  appendActionLog('Uploading file to GitHub ...');
+  const url = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${GITHUB_FILE_PATH}`;
+  const headers = {
+    'Authorization': `Bearer ${githubToken}`,
+    'Accept': 'application/vnd.github+json',
+    'Content-Type': 'application/json'
+  };
+
+  let currentSha = await getGitHubSha(githubToken);
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const body = {
+      message: commitMessage,
+      content: base64Content,
+      sha: currentSha,
+      branch: GITHUB_BRANCH
+    };
+
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      appendActionLog('✅ File updated to GitHub: ' + data.content.path);
+      const newSha = data.commit.sha;
+
+      const commitRes = await fetch(`https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/commits/${newSha}`, {
+        headers: {
+          'Authorization': `Bearer ${githubToken}`,
+          'Accept': 'application/vnd.github+json'
+        }
+      });
+
+      const commitData = await commitRes.json();
+      const fileStats = commitData.files.find(f => f.filename === GITHUB_FILE_PATH);
+      if (fileStats) {
+        appendActionLog(`✅ File updated: +${fileStats.additions}, -${fileStats.deletions}, Δ${fileStats.changes}`);
+      } else {
+        appendActionLog('✅ No changes');
+      }
+      return newSha;
+    }
+
+    const message = data?.message || 'Unknown GitHub API error';
+    if (res.status === 409 && attempt < 2) {
+      appendActionLog('ℹ️ SHA changed on GitHub, retrying upload with latest version...');
+      currentSha = await getGitHubSha(githubToken);
+      continue;
+    }
+
+    throw new Error(message);
+  }
+
+  throw new Error('Upload failed after retry.');
+}
+
+async function waitForPagesWorkflowPublish(githubToken, maxAttempts = 30, intervalMs = 10000) {
+  const runsUrl = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/actions/runs?branch=${GITHUB_BRANCH}&per_page=10`;
+  const authHeaders = {
+    'Authorization': `Bearer ${githubToken}`,
+    'Accept': 'application/vnd.github+json'
+  };
+  const publicHeaders = {
+    'Accept': 'application/vnd.github+json'
+  };
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    let res = await fetch(runsUrl, { headers: authHeaders });
+    if (!res.ok) {
+      res = await fetch(runsUrl, { headers: publicHeaders });
+    }
+
+    if (!res.ok) {
+      appendActionLog(`⚠️ Could not check Actions workflow status (${res.status}) — skipping wait.`);
+      return;
+    }
+
+    const data = await res.json();
+    const run = (data.workflow_runs || []).find(r => {
+      const name = (r.name || '').toLowerCase();
+      const path = (r.path || '').toLowerCase();
+      return name.includes('pages build and deployment') || path.includes('pages');
+    });
+
+    if (!run) {
+      appendActionLog(`Waiting for Pages workflow run to appear (attempt ${i + 1}/${maxAttempts})`);
+      continue;
+    }
+
+    if (run.status === 'completed' && run.conclusion === 'success') {
+      appendActionLog('✅ GitHub Pages published (via Actions workflow).');
+      return;
+    }
+
+    if (run.status === 'completed' && run.conclusion && run.conclusion !== 'success') {
+      throw new Error('GitHub Pages workflow failed: ' + run.conclusion);
+    }
+
+    appendActionLog('Pages workflow in progress...');
+  }
+
+  appendActionLog('⚠️ Timed out waiting for GitHub Pages workflow completion.');
+}
+
+async function gatherCurrentData() {
+  const { gatherBtn, commitBtn } = getDataActionElements();
+  if (gatherBtn) gatherBtn.disabled = true;
+  if (commitBtn) commitBtn.disabled = true;
+  clearActionLog();
+  appendActionLog('Gathering current website data from Squarespace ...');
+  setActionStatus('Gathering current website data from Squarespace ...');
+
+  state.stepOneDone = false;
+  state.stepTwoDone = false;
+  state.stepThreeDone = false;
+  state.stepFourDone = false;
+  state.stepFiveDone = false;
+
+  try {
+    const servicesData = await fetchLatestServicesData(appendActionLog);
+    const model = buildServicesDataModel(servicesData, appendActionLog);
+    applyServicesDataModel(model);
+    appendActionLog('Generated in-memory services data ready for sync checks.');
+    await runWorkflow();
+    setActionStatus('Using gathered in-memory website data. If you edit any blog entries, press Gather current data again before continuing.', 'success');
+  } catch (error) {
+    console.error('Failed to gather current data:', error);
+    appendActionLog('🚨 Error: ' + error.message);
+    setActionStatus('Failed to gather current data. See the log below.', 'error');
+  } finally {
+    if (gatherBtn) gatherBtn.disabled = false;
+    updateCommitButtonState();
+  }
+}
+
+async function commitGatheredDataToGitHub() {
+  const { commitBtn, patInput } = getDataActionElements();
+  const githubToken = patInput ? patInput.value.trim() : '';
+  if (!githubToken) {
+    setActionStatus('Enter a GitHub PAT before committing the gathered data.', 'error');
+    return;
+  }
+  if (!state.gatheredContent) {
+    setActionStatus('Gather current data first.', 'error');
+    return;
+  }
+
+  commitBtn.disabled = true;
+  clearActionLog();
+  appendActionLog('Preparing gathered data for GitHub commit ...');
+
+  try {
+    const base64Content = btoa(unescape(encodeURIComponent(state.gatheredContent)));
+    const commitSha = await updateGitHub(githubToken, base64Content, runtimeConfig.githubCommitMessage);
+    if (commitSha) {
+      await waitForPagesWorkflowPublish(githubToken);
+      setActionStatus('Gathered data committed to GitHub successfully.', 'success');
+    }
+  } catch (error) {
+    console.error('Failed to commit gathered data:', error);
+    appendActionLog('🚨 Error: ' + error.message);
+    setActionStatus('Failed to commit gathered data to GitHub. See the log below.', 'error');
+  } finally {
+    updateCommitButtonState();
+  }
+}
+
+function clearWorkflowContainers() {
+  ['missing-sysids', 'unknown-sysids', 'archive-records', 'update-records', 'date-updates'].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.innerHTML = '';
+      element.style.display = 'block';
+    }
+  });
+}
 
 ////////////////////////////////////////////////////////
 // STEP ONE
@@ -47,14 +548,12 @@ function filterAndTransform(arr, removedItems) {
 function displayRemovedItems(removedItems,container) {
 
 	const intro = document.createElement('p');
-	intro.innerHTML = 'The first step is to make sure that all listings have an identifiable \
+  intro.innerHTML = `The first step is to make sure that all listings have an identifiable \
 										 SalesForce system ID (15 alphanumeric characters), enclosed in square \
 										 brackets and on a line of their own at the end of the listing body. \
 										 These following listings (each clickable to edit) do not have their \
 										 system ID and that needs to be added to all of these, before you can \
-										 proceeed to the next step of the process. After updating the blog listings,\
-										 don\'t forget to regenerate the cache and Ctrl Refresh this page, as this \
-										 page is based on that cache.';
+                   proceeed to the next step of the process. ${runtimeConfig.refreshDataGuidance}`;
 	container.appendChild(intro);
 	
 	const list = document.createElement('ul');
@@ -80,8 +579,8 @@ function displayDuplicateItems(duplicatesMap, container) {
   intro.innerHTML = `
     The following listings have duplicate Salesforce system IDs. Either one of 
 		the listings needs to have a new System ID or it needs unpublishing. Don't 
-		forget to regenerate the cache and Ctrl Refresh this page, as this page is 
-		based on that cache. 
+		forget to press "Gather current data" again on this page after editing the 
+		blog listings. 
   `;
   container.appendChild(intro);
 
@@ -146,23 +645,20 @@ function missingSysids() {
   // Track removed entries (no Salesforce ID)
   const removedItems = [];
   const duplicateItemsMap = {};
+	const container = document.getElementById('missing-sysids');
+	container.innerHTML = '';
+	const nationalData = window.sectionData?.['national'] || [];
+	const regionalData = window.sectionData?.['regional'] || [];
 
   // Process arrays
-  const nationalFiltered = filterAndTransform(window.sectionData['national'], removedItems);
-  const regionalFiltered = filterAndTransform(window.sectionData['regional'], removedItems);
+  const nationalFiltered = filterAndTransform(nationalData, removedItems);
+  const regionalFiltered = filterAndTransform(regionalData, removedItems);
 
   // Combine national and regional arrays to find duplicates across both
-  const combinedArray = [...window.sectionData['national'], ...window.sectionData['regional']];
+  const combinedArray = [...nationalData, ...regionalData];
   const duplicatesMap = findDuplicates(combinedArray);
 
-  // Clean up original arrays to free memory
-  window.sectionData['national'].length = 0;
-  window.sectionData['regional'].length = 0;
-  delete window.sectionData['national'];
-  delete window.sectionData['regional'];
-
   // Display any listings without a system ID
-  const container = document.getElementById('missing-sysids');
   container.style.display = 'block'; // Make sure it's visible
 
   if (removedItems.length > 0) {
@@ -200,6 +696,7 @@ function missingSysids() {
 
 const OAUTH_CODE_VERIFIER_KEY = 'sf_oauth_code_verifier';
 const OAUTH_STATE_KEY = 'sf_oauth_state';
+const STEP_FIVE_IGNORE_BEFORE_DATE_KEY = 'sf_step5_ignore_before_date';
 // localStorage is used (not sessionStorage) because Squarespace redirects can clear sessionStorage
 const oauthStorage = window.localStorage;
 
@@ -308,8 +805,25 @@ function getTokenFromHash() {
 	};
 }
 
+function persistStepFiveCutoffFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlOverride = urlParams.get('step5IgnoreBeforeDate');
+  if (urlOverride === null) {
+    return;
+  }
+
+  const trimmed = urlOverride.trim();
+  if (trimmed) {
+    oauthStorage.setItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY, trimmed);
+  } else {
+    oauthStorage.removeItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY);
+  }
+}
+
 // Perform login redirect
 async function loginWithSalesforce() {
+  persistStepFiveCutoffFromUrl();
+
   const codeVerifier = generateRandomString(96);
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   const oauthState = generateRandomString(24);
@@ -422,9 +936,7 @@ function displayUnknownSysIds(missing, archived) {
 		html += `<p>These following listings (each clickable to edit) don't have a matching
 							record (as identified by system ID) in the CRM. Either the system ID in the 
 							listing needs to be corrected, the listing unpublished or a new record needs
-							to be created in the CRM and its system ID replaced in the listing. After 
-							updating the blog listings, don't forget to regenerate the cache and Ctrl 
-							Refresh this page, as this page is based on that cache.</p><ul>`;
+              to be created in the CRM and its system ID replaced in the listing. ${runtimeConfig.refreshDataGuidance}</p><ul>`;
 		html += missing.map(item => {
 			const updatedUrl = item.fullUrl?.replace('www.ataloss.org', 'ataloss.squarespace.com') || '#';
 			return `<li><a href="${updatedUrl}" target="_blank">${item.title}</a> (System ID: ${item.salesforceId})</li>`;
@@ -437,9 +949,7 @@ function displayUnknownSysIds(missing, archived) {
 		
     html += `<p>These following listings (each clickable to edit) are all represented
 								by archived CRM records. Either the listing should be unpublished or 
-								the CRM record needs to be unarchived. After updating the blog listings, 
-								don't forget to regenerate the cache and Ctrl Refresh this page, as 
-								this page is based on that cache.<ul>`;
+                the CRM record needs to be unarchived. ${runtimeConfig.refreshDataGuidance}<ul>`;
 		html += archived.map(item => {
 			const updatedUrl = item.fullUrl?.replace('www.ataloss.org', 'ataloss.squarespace.com') || '#';
 			return `<li><a href="${updatedUrl}" target="_blank">${item.title}</a> (System ID: ${item.salesforceId})</li>`;
@@ -475,8 +985,7 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 				 live listings on the wensite.</p>
       <p>The following represent Service Listings in the CRM, that don't have a live listing on the website. 
 			   Either the listing needs to be created on the website or you can press this button, to set the Archive 
-				 flag in the CRM record of each of these Service Listings. After updating the blog listings, don't 
-				 forget to regenerate the cache and Ctrl Refresh this page, as this page is based on that cache.</p>
+         flag in the CRM record of each of these Service Listings. ${runtimeConfig.refreshDataGuidance}</p>
       <ul>
         ${state.pendingArchive.map(r =>
           `<li><a href="${crmSlUrl(r.Id)}" target="_blank">${r.Service_Listing_Name__c || '(Untitled)'} (System ID: ${r.Service_Listing_System_ID__c})</a></li>`
@@ -490,6 +999,10 @@ function findRecordsToArchive(sfRecords, combinedFiltered) {
 async function archiveRecords(state) {
 	const archiveBtn = document.getElementById('archiveBtn');
 	archiveBtn.disabled = true;
+  state.stepThreeDone = false;
+  state.stepFourDone = false;
+  state.stepFiveDone = false;
+  updateCommitButtonState();
 
   const container = document.getElementById('archive-records');
 	container.innerHTML = 'Archiving ...';
@@ -518,9 +1031,11 @@ async function archiveRecords(state) {
 	await fetchAllSFRecords();
 	
 	findRecordsToArchive(state.sfRecords, window.combinedFiltered);
+  state.stepThreeDone = state.pendingArchive.length === 0;
 	if (state.pendingArchive.length > 0) {
 		archiveBtn.disabled = false;
 	}
+  updateCommitButtonState();
 }
 
 
@@ -748,10 +1263,13 @@ const fieldLabels = {
 
 async function reviewChanges(state) {
   try {
-				const reviewBtn = document.getElementById('reviewBtn');
+    const reviewBtn = document.getElementById('reviewBtn');
 		const syncBtn = document.getElementById('syncBtn');
 		reviewBtn.disabled = true;
 		syncBtn.disabled = true;
+    state.stepFourDone = false;
+    state.stepFiveDone = false;
+    updateCommitButtonState();
 		
 const container = document.getElementById("update-records");
 		container.innerHTML = 'Updating ...';
@@ -766,7 +1284,14 @@ const container = document.getElementById("update-records");
     // Render report
     if (state.pendingUpdates.length === 0) {
       container.innerHTML = "<p>No updates required.</p>";
+      state.stepFourDone = true;
+      const stepFiveSection = document.getElementById('stepfive');
+      if (stepFiveSection && state.accessToken) {
+        stepFiveSection.style.display = 'flex';
+        await reviewDateChanges(state);
+      }
     } else {
+      state.stepFourDone = false;
 			const theseUpdates = state.pendingUpdates.slice(0, NUMBER_OF_CHANGES);
 			container.innerHTML = 				`
 				 <p>The fourth and final step, now that we've made sure there is a one-to-one mapping of live 
@@ -873,6 +1398,7 @@ const container = document.getElementById("update-records");
 
 	reviewBtn.disabled = false;
 	syncBtn.disabled = false;
+  updateCommitButtonState();
 }
 
 // sync changes to CRM
@@ -882,6 +1408,9 @@ async function syncTitles(state) {
 	const syncBtn = document.getElementById('syncBtn');
 	reviewBtn.disabled = true;
 	syncBtn.disabled = true;
+  state.stepFourDone = false;
+  state.stepFiveDone = false;
+  updateCommitButtonState();
 	
 	container = document.getElementById("update-records");
 	container.innerHTML = 'Syncing ...';
@@ -919,6 +1448,7 @@ async function syncTitles(state) {
 
 	reviewBtn.disabled = false;
 	syncBtn.disabled = false;
+  updateCommitButtonState();
 }
 
 // update function that processes tag changes first
@@ -987,9 +1517,127 @@ async function updateRecordsInBatches(updates, createTagRecord, deleteTagRecord,
 // DATE FIELDS SYNCHRONIZATION
 ////////////////////////////////////////////////////////
 
+function formatDateForCsv(dateValue) {
+  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+    return '';
+  }
+  return dateValue.toISOString().split('T')[0];
+}
+
+function escapeCsvValue(value) {
+  const str = String(value ?? '');
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function downloadDateDifferencesCsv(dateUpdates) {
+  if (!Array.isArray(dateUpdates) || dateUpdates.length === 0) {
+    alert('No date differences to export.');
+    return;
+  }
+
+  const header = [
+    'Service Listing Name',
+    'CRM Record URL',
+    'CRM Date Last Updated on Website',
+    'Squarespace Updated Date'
+  ];
+
+  const rows = dateUpdates
+    .slice()
+    .sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }))
+    .map((update) => [
+      update.title || '',
+      crmSlUrl(update.id),
+      formatDateForCsv(update.crmDate),
+      formatDateForCsv(update.websiteDate)
+    ]);
+
+  const csvContent = [header, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(','))
+    .join('\n');
+
+  const now = new Date();
+  const timestamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')
+  ].join('') + '-' + [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0')
+  ].join('');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `stage5-date-differences-${timestamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function parseDateOnlyInput(dateValue) {
+  if (!dateValue || typeof dateValue !== 'string') {
+    return null;
+  }
+  const trimmed = dateValue.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, monthIndex, day);
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getStepFiveIgnoreBeforeDate() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlOverride = urlParams.get('step5IgnoreBeforeDate');
+  const storedOverride = oauthStorage.getItem(STEP_FIVE_IGNORE_BEFORE_DATE_KEY);
+  const configuredValue = (urlOverride || storedOverride || runtimeConfig.stepFiveIgnoreBeforeDate || '').trim();
+  const parsedDate = parseDateOnlyInput(configuredValue);
+
+  if (!configuredValue || parsedDate) {
+    return {
+      value: configuredValue,
+      date: parsedDate,
+      invalid: false,
+      source: urlOverride ? 'url' : storedOverride ? 'storage' : 'config'
+    };
+  }
+
+  return {
+    value: configuredValue,
+    date: null,
+    invalid: true,
+    source: urlOverride ? 'url' : storedOverride ? 'storage' : 'config'
+  };
+}
+
 // Find listings with date discrepancies
 function findDateDiscrepancies(sfRecords, combinedFiltered) {
   const dateUpdates = [];
+  let ignoredByCutoff = 0;
+  const cutoffInfo = getStepFiveIgnoreBeforeDate();
+  const minimumWebsiteDate = cutoffInfo.date;
 
   for (const item of combinedFiltered) {
     if (!item.updatedOn) continue; // Skip if no website date
@@ -1001,6 +1649,11 @@ function findDateDiscrepancies(sfRecords, combinedFiltered) {
     if (!sfRecord) continue; // No matching SF record
 
     const websiteDate = new Date(parseInt(item.updatedOn, 10));
+    if (minimumWebsiteDate && websiteDate < minimumWebsiteDate) {
+      ignoredByCutoff += 1;
+      continue;
+    }
+
     const crmDate = sfRecord.Date_Last_Updated_on_Website__c 
       ? new Date(sfRecord.Date_Last_Updated_on_Website__c)
       : new Date(0); // Default to epoch if no CRM date
@@ -1031,7 +1684,11 @@ function findDateDiscrepancies(sfRecords, combinedFiltered) {
     }
   }
 
-  return dateUpdates;
+  return {
+    dateUpdates,
+    ignoredByCutoff,
+    cutoffInfo
+  };
 }
 
 // Review date changes - similar to reviewChanges for Step 4
@@ -1041,18 +1698,29 @@ async function reviewDateChanges(state) {
     const syncDatesBtn = document.getElementById('syncDatesBtn');
     reviewDatesBtn.disabled = true;
     syncDatesBtn.disabled = true;
+		state.stepFiveDone = false;
+		updateCommitButtonState();
 
     const container = document.getElementById("date-updates");
     container.innerHTML = 'Checking dates...';
 
     // Get date discrepancies
-    state.pendingDateUpdates = findDateDiscrepancies(state.sfRecords, window.combinedFiltered);
+    const dateDiscrepancyResult = findDateDiscrepancies(state.sfRecords, window.combinedFiltered);
+    state.pendingDateUpdates = dateDiscrepancyResult.dateUpdates;
     console.log(`${state.pendingDateUpdates.length} date discrepancies found`);
 
     // Render report
     if (state.pendingDateUpdates.length === 0) {
-      container.innerHTML = "<p>All dates are synchronized.</p>";
+      let html = '<p>All dates are synchronized.</p>';
+      if (dateDiscrepancyResult.cutoffInfo.date) {
+        html += `<p>Stage 5 filter: ignoring listings with Squarespace updated date before <strong>${dateDiscrepancyResult.cutoffInfo.value}</strong> (${dateDiscrepancyResult.ignoredByCutoff} listing${dateDiscrepancyResult.ignoredByCutoff === 1 ? '' : 's'} ignored).</p>`;
+      } else if (dateDiscrepancyResult.cutoffInfo.invalid) {
+        html += `<p style="color: #b42318;">Stage 5 filter ignored due to invalid date format: "${dateDiscrepancyResult.cutoffInfo.value}". Use YYYY-MM-DD.</p>`;
+      }
+      container.innerHTML = html;
+			state.stepFiveDone = true;
     } else {
+			state.stepFiveDone = false;
       const theseDateUpdates = state.pendingDateUpdates.slice(0, NUMBER_OF_CHANGES);
       
       // Separate anomalies and normal updates
@@ -1060,10 +1728,17 @@ async function reviewDateChanges(state) {
       const normal = theseDateUpdates.filter(u => !u.isAnomaly);
       
       let html = `
+        <p><button id="downloadDateDiffCsvBtn" type="button">Download date differences as CSV</button></p>
         <p>Step 5: Synchronize website update dates with CRM records. Changes will be displayed 
            ${NUMBER_OF_CHANGES} record${NUMBER_OF_CHANGES > 1 ? 's' : ''} at a time.</p>
         <p>This batch of ${theseDateUpdates.length} CRM record${theseDateUpdates.length > 1 ? 's' : ''} that need${theseDateUpdates.length === 1 ? 's' : ''} date updates out of total of ${state.pendingDateUpdates.length}:</p>
       `;
+
+      if (dateDiscrepancyResult.cutoffInfo.date) {
+        html += `<p>Stage 5 filter: ignoring listings with Squarespace updated date before <strong>${dateDiscrepancyResult.cutoffInfo.value}</strong> (${dateDiscrepancyResult.ignoredByCutoff} listing${dateDiscrepancyResult.ignoredByCutoff === 1 ? '' : 's'} ignored).</p>`;
+      } else if (dateDiscrepancyResult.cutoffInfo.invalid) {
+        html += `<p style="color: #b42318;">Stage 5 filter ignored due to invalid date format: "${dateDiscrepancyResult.cutoffInfo.value}". Use YYYY-MM-DD.</p>`;
+      }
       
       if (anomalies.length > 0) {
         html += '<h4>⚠️ Anomalies (CRM date is newer than website date):</h4><ol>';
@@ -1106,6 +1781,10 @@ async function reviewDateChanges(state) {
       }
       
       container.innerHTML = html;
+      const downloadCsvBtn = document.getElementById('downloadDateDiffCsvBtn');
+      if (downloadCsvBtn) {
+        downloadCsvBtn.addEventListener('click', () => downloadDateDifferencesCsv(state.pendingDateUpdates));
+      }
       syncDatesBtn.disabled = false;
     }
 
@@ -1117,6 +1796,7 @@ async function reviewDateChanges(state) {
 
   reviewDatesBtn.disabled = false;
   syncDatesBtn.disabled = false;
+	updateCommitButtonState();
 }
 
 // Sync date changes to CRM - similar to syncTitles
@@ -1125,6 +1805,8 @@ async function syncDates(state) {
   const syncDatesBtn = document.getElementById('syncDatesBtn');
   reviewDatesBtn.disabled = true;
   syncDatesBtn.disabled = true;
+	state.stepFiveDone = false;
+	updateCommitButtonState();
   
   const container = document.getElementById("date-updates");
   container.innerHTML = 'Syncing dates...';
@@ -1164,6 +1846,83 @@ async function syncDates(state) {
   syncDatesBtn.disabled = false;
   
   container.innerHTML = '<p>Those date changes are now done. Press the Review Date Changes button to get the next batch.</p>';
+  updateCommitButtonState();
+}
+
+async function runWorkflow() {
+  const stepTwoSection = document.getElementById('steptwo');
+  const stepThreeSection = document.getElementById('stepthree');
+  const stepFourSection = document.getElementById('stepfour');
+  const stepFiveSection = document.getElementById('stepfive');
+  const reviewBtn = document.getElementById('reviewBtn');
+  const syncBtn = document.getElementById('syncBtn');
+  const archiveBtn = document.getElementById('archiveBtn');
+  const reviewDatesBtn = document.getElementById('reviewDatesBtn');
+  const syncDatesBtn = document.getElementById('syncDatesBtn');
+
+  clearWorkflowContainers();
+  state.pendingUpdates = [];
+  state.pendingArchive = [];
+  state.pendingDateUpdates = [];
+  state.stepOneDone = false;
+  state.stepTwoDone = false;
+  state.stepThreeDone = false;
+  state.stepFourDone = false;
+  state.stepFiveDone = false;
+
+  if (!pageContext.isEditMode) {
+    if (stepTwoSection) stepTwoSection.style.display = 'none';
+    if (stepThreeSection) stepThreeSection.style.display = 'none';
+    if (stepFourSection) stepFourSection.style.display = 'none';
+    if (stepFiveSection) stepFiveSection.style.display = 'none';
+  }
+
+  if (reviewBtn) reviewBtn.disabled = !state.accessToken;
+  if (syncBtn) syncBtn.disabled = true;
+  if (archiveBtn) archiveBtn.disabled = true;
+  if (reviewDatesBtn) reviewDatesBtn.disabled = true;
+  if (syncDatesBtn) syncDatesBtn.disabled = true;
+
+  state.stepOneDone = !missingSysids() || pageContext.isTestMode;
+
+  if (state.stepOneDone && stepTwoSection) {
+    stepTwoSection.style.display = 'flex';
+
+    if (state.accessToken) {
+      await fetchAllSFRecords();
+      const { missing, archived } = await findExtraListings(state.sfRecords, window.combinedFiltered);
+      displayUnknownSysIds(missing, archived);
+      state.stepTwoDone = (missing.length === 0 && archived.length === 0);
+    }
+  }
+
+  state.stepTwoDone ||= pageContext.isTestMode;
+
+  if (state.stepTwoDone && stepThreeSection) {
+    stepThreeSection.style.display = 'flex';
+    if (state.accessToken) {
+      findRecordsToArchive(state.sfRecords, window.combinedFiltered);
+      state.stepThreeDone = state.pendingArchive.length === 0;
+      if (!state.stepThreeDone && archiveBtn) {
+        archiveBtn.disabled = false;
+      }
+    }
+  }
+
+  state.stepThreeDone ||= pageContext.isTestMode && state.accessToken;
+
+  if (state.stepThreeDone && stepFourSection) {
+    stepFourSection.style.display = 'flex';
+    if (state.accessToken) {
+      await reviewChanges(state);
+    }
+  }
+
+  if (state.stepThreeDone && state.stepFourDone && state.accessToken && stepFiveSection) {
+    stepFiveSection.style.display = 'flex';
+  }
+
+  updateCommitButtonState();
 }
 ////////////////////////////////////////////////////////
 // MAIN ROUTINE
@@ -1176,31 +1935,23 @@ window.addEventListener('load', async () => {
 
 	// Check for the "test" query parameter
   const urlParams = new URLSearchParams(window.location.search);
-  const isTestMode = urlParams.get('test') === 'true';
+  pageContext.isTestMode = urlParams.get('test') === 'true';
   
   // Check if we're in Squarespace edit mode (editing at ataloss.squarespace.com)
-  const isEditMode = window.location.hostname === 'ataloss.squarespace.com';
-
-  // Hide steps 2-5 initially (unless in edit mode)
-  const stepTwoSection = document.getElementById("steptwo");
-  const stepThreeSection = document.getElementById("stepthree");
-  const stepFourSection = document.getElementById("stepfour");
-  const stepFiveSection = document.getElementById("stepfive");
-  
-  if (!isEditMode) {
-    if (stepTwoSection) stepTwoSection.style.display = "none";
-    if (stepThreeSection) stepThreeSection.style.display = "none";
-    if (stepFourSection) stepFourSection.style.display = "none";
-    if (stepFiveSection) stepFiveSection.style.display = "none";
-  }
+  pageContext.isEditMode = window.location.hostname === 'ataloss.squarespace.com';
+	pageContext.isAtalossDomain = window.location.hostname === 'www.ataloss.org';
+	ensureDataActionsUi();
+  applySquarespaceRuntimeConfig();
+  persistStepFiveCutoffFromUrl();
 
 	// get button elements
 	const loginBtn = document.getElementById('loginBtn');
 	const reviewBtn = document.getElementById('reviewBtn');
 	const syncBtn = document.getElementById('syncBtn');
 	const archiveBtn = document.getElementById('archiveBtn');
+	const gatherBtn = document.getElementById('gatherDataBtn');
+	const commitBtn = document.getElementById('commitGithubBtn');
 
-	const isAtalossDomain = window.location.hostname === "www.ataloss.org";
 	const unknownSysIdsDiv = document.getElementById("unknown-sysids");
   const oauthError = getOAuthError();
   if (oauthError) {
@@ -1242,6 +1993,7 @@ window.addEventListener('load', async () => {
 				console.log("Authenticated with Salesforce");
 				reviewBtn.disabled = false;   // Enable Review
 				loginBtn.disabled = true;     // Disable Login
+        updateCommitButtonState();
 			} else {
 				throw new Error("Access token invalid");
 			}
@@ -1251,11 +2003,12 @@ window.addEventListener('load', async () => {
 			state.accessToken = null;
 			state.instanceUrl = null;
 			reviewBtn.disabled = true;
+      updateCommitButtonState();
 
 			// Clean up URL to remove token
 			window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
 			});
-	} else if (!isAtalossDomain) {
+  } else if (!pageContext.isAtalossDomain) {
 		if (loginBtn) loginBtn.disabled = true;
     unknownSysIdsDiv.innerHTML = '<p style="color: red;"><strong>You can only connect to the CRM if viewing this page under the www.ataloss.org domain.</strong></p>';
     unknownSysIdsDiv.style.display = 'block';
@@ -1266,67 +2019,19 @@ window.addEventListener('load', async () => {
 	reviewBtn.addEventListener('click', () => reviewChanges(state));
 	syncBtn.addEventListener('click', () => syncTitles(state));
 	archiveBtn.addEventListener('click', () => archiveRecords(state));
+  if (gatherBtn) gatherBtn.addEventListener('click', gatherCurrentData);
+  if (commitBtn) commitBtn.addEventListener('click', commitGatheredDataToGitHub);
 	const reviewDatesBtn = document.getElementById('reviewDatesBtn');
 	const syncDatesBtn = document.getElementById('syncDatesBtn');
 	if (reviewDatesBtn) reviewDatesBtn.addEventListener('click', () => reviewDateChanges(state));
 	if (syncDatesBtn) syncDatesBtn.addEventListener('click', () => syncDates(state));
 
-	let stepOneDone = false;
-	let stepTwoDone = false;
-	let stepThreeDone = false;
-
-	//step one
-	stepOneDone = !missingSysids();
-	stepOneDone ||= isTestMode;
-	
-	//step two
-	if (stepOneDone) {
-		// no listings missing their sytem ID, so display step two and, if connected to CRM, process step 2
-		stepTwoSection.style.display = "flex";
-
-		if(state.accessToken) {
-			await fetchAllSFRecords();
-			const { missing, archived } = await findExtraListings(state.sfRecords, window.combinedFiltered);
-			displayUnknownSysIds(missing, archived);
-			stepTwoDone = (missing.length == 0 && archived.length == 0)
-		}
-	}
-	stepTwoDone ||= isTestMode;
-	
-	// step three
-	if(stepTwoDone) {
-		// display section
-		stepThreeSection.style.display = "flex";
-		
-		// find records that should be archived and enable button to archive
-		if(state.accessToken) {
-			findRecordsToArchive(state.sfRecords, window.combinedFiltered);
-			if (state.pendingArchive.length > 0) {
-				archiveBtn.disabled = false;
-			} else {
-				stepThreeDone = true;
-			}
-		}
-	}
-	stepThreeDone ||= isTestMode && state.accessToken;
-	
-	// step four
-	if (stepThreeDone) {
-		// display section
-		stepFourSection.style.display = "flex";
-		
-		await reviewChanges(state);
-	}
-
-	// step five - show when step 4 has no pending updates
-	let stepFourDone = stepThreeDone && state.pendingUpdates.length === 0;
-	if (stepFourDone && state.accessToken) {
-		// display section
-		stepFiveSection.style.display = "flex";
-		
-		// Review date changes
-		await reviewDateChanges(state);
-	}
+  await runWorkflow();
+  if (!pageContext.isAtalossDomain) {
+    unknownSysIdsDiv.innerHTML = '<p style="color: red;"><strong>You can only connect to the CRM if viewing this page under the www.ataloss.org domain.</strong></p>';
+    unknownSysIdsDiv.style.display = 'block';
+  }
+  updateCommitButtonState();
 
 });
 
