@@ -1399,7 +1399,7 @@ const container = document.getElementById("update-records");
   }
 
 	reviewBtn.disabled = false;
-	syncBtn.disabled = false;
+	syncBtn.disabled = state.pendingUpdates.length === 0;
   updateCommitButtonState();
 }
 
@@ -1449,7 +1449,7 @@ async function syncTitles(state) {
 	}
 
 	reviewBtn.disabled = false;
-	syncBtn.disabled = false;
+	syncBtn.disabled = state.pendingUpdates.length === 0;
   updateCommitButtonState();
 }
 
@@ -1797,7 +1797,7 @@ async function reviewDateChanges(state) {
   }
 
   reviewDatesBtn.disabled = false;
-  syncDatesBtn.disabled = false;
+  syncDatesBtn.disabled = state.pendingDateUpdates.length === 0;
 	updateCommitButtonState();
 }
 
@@ -1845,7 +1845,7 @@ async function syncDates(state) {
   }
 
   reviewDatesBtn.disabled = false;
-  syncDatesBtn.disabled = false;
+  syncDatesBtn.disabled = state.pendingDateUpdates.length === 0;
   
   container.innerHTML = '<p>Those date changes are now done. Press the Review Date Changes button to get the next batch.</p>';
   updateCommitButtonState();
